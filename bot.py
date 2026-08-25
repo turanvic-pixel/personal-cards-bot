@@ -10,6 +10,7 @@ import aiohttp
 from aiohttp import web
 from PIL import Image
 import imagehash
+import pymupdf
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.ext import (
     Application,
@@ -196,6 +197,19 @@ def optimize_image_bytes(raw_bytes: bytes) -> bytes:
     return out.getvalue()
 
 
+def render_pdf_first_page(pdf_bytes: bytes) -> bytes:
+    """Рендерит первую страницу PDF в PNG-байты нужного разрешения."""
+    pdf = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        page = pdf[0]
+        zoom = MAX_IMAGE_DIMENSION / max(page.rect.width, page.rect.height)
+        matrix = pymupdf.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=matrix)
+        return pix.tobytes("png")
+    finally:
+        pdf.close()
+
+
 def compute_phash(raw_bytes: bytes) -> str | None:
     try:
         img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
@@ -221,6 +235,40 @@ async def admin_add_card_photo(update: Update, context: ContextTypes.DEFAULT_TYP
     new_id = storage.add_card(photo.file_id, kind="photo", phash=phash)
     await update.message.reply_text(
         f"Добавлено! Карточка #{new_id}. Всего карточек: {storage.count()}.",
+        reply_markup=DRAW_BUTTON,
+    )
+
+
+async def admin_add_card_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    doc = update.message.document
+    tg_file = await context.bot.get_file(doc.file_id)
+    raw = await tg_file.download_as_bytearray()
+    try:
+        page_png = render_pdf_first_page(bytes(raw))
+    except Exception as e:
+        logger.warning("Не удалось отрендерить PDF: %s", e)
+        await update.message.reply_text("Не получилось прочитать этот PDF, попробуй другой файл.")
+        return
+    phash = compute_phash(page_png)
+    dup = storage.find_duplicate(phash)
+    if dup:
+        await update.message.reply_text(
+            f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
+        )
+        return
+    try:
+        optimized = optimize_image_bytes(page_png)
+    except Exception as e:
+        logger.warning("Не удалось обработать картинку из PDF: %s", e)
+        await update.message.reply_text("Не получилось обработать эту карточку, попробуй другой файл.")
+        return
+    sent = await update.message.reply_photo(photo=io.BytesIO(optimized))
+    photo_file_id = sent.photo[-1].file_id
+    new_id = storage.add_card(photo_file_id, kind="photo", phash=phash)
+    await update.message.reply_text(
+        f"Добавлено из PDF (первая страница)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
         reply_markup=DRAW_BUTTON,
     )
 
@@ -596,6 +644,7 @@ async def main():
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(STATS_BUTTON_TEXT)}$"), stats_cmd))
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(REMINDER_BUTTON_TEXT)}$"), reminder_menu_cmd))
     application.add_handler(MessageHandler(filters.PHOTO & filters.User(ADMIN_ID), admin_add_card_photo))
+    application.add_handler(MessageHandler(filters.Document.PDF & filters.User(ADMIN_ID), admin_add_card_pdf))
     application.add_handler(MessageHandler(filters.Document.IMAGE & filters.User(ADMIN_ID), admin_add_card_document))
     application.add_handler(MessageHandler(filters.PHOTO & ~filters.User(ADMIN_ID), admin_ignore_non_admin_photo))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
