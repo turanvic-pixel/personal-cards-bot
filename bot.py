@@ -709,7 +709,7 @@ async def self_ping():
 
 
 async def main():
-    application = Application.builder().token(BOT_TOKEN).build()
+    application = Application.builder().token(BOT_TOKEN).concurrent_updates(8).build()
     application.add_handler(MessageHandler(filters.ALL, track_user), group=-1)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("count", count_cmd))
