@@ -12,6 +12,7 @@ from PIL import Image
 import imagehash
 import pymupdf
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
+from telegram.error import NetworkError, RetryAfter, TimedOut
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -25,6 +26,50 @@ from storage import CardStorage, FavoritesStore, MetaStore, ReminderStore, UserS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("carddeck-bot")
+
+
+async def with_retries(coro_func, *args, max_attempts: int = 5, **kwargs):
+    """Вызывает Telegram API с повторами при флуд-контроле (RetryAfter) и сетевых сбоях,
+    вместо того чтобы молча падать при отправке большого числа файлов подряд."""
+    attempt = 0
+    while True:
+        try:
+            return await coro_func(*args, **kwargs)
+        except RetryAfter as e:
+            attempt += 1
+            wait = e.retry_after + 1
+            logger.warning("Flood control: жду %.1f сек (попытка %s/%s)", wait, attempt, max_attempts)
+            await asyncio.sleep(wait)
+            if attempt >= max_attempts:
+                raise
+        except (TimedOut, NetworkError) as e:
+            attempt += 1
+            logger.warning("Сетевая ошибка: %s (попытка %s/%s)", e, attempt, max_attempts)
+            await asyncio.sleep(2 * attempt)
+            if attempt >= max_attempts:
+                raise
+
+
+async def send_photo_with_retry(send_call, photo_bytes: bytes, max_attempts: int = 5, **kwargs):
+    """Как with_retries, но для отправки фото: пересобирает поток из тех же байт
+    на каждой попытке (BytesIO нельзя переиспользовать после частичной отправки)."""
+    attempt = 0
+    while True:
+        try:
+            return await send_call(photo=io.BytesIO(photo_bytes), **kwargs)
+        except RetryAfter as e:
+            attempt += 1
+            wait = e.retry_after + 1
+            logger.warning("Flood control (фото): жду %.1f сек (попытка %s/%s)", wait, attempt, max_attempts)
+            await asyncio.sleep(wait)
+            if attempt >= max_attempts:
+                raise
+        except (TimedOut, NetworkError) as e:
+            attempt += 1
+            logger.warning("Сетевая ошибка (фото): %s (попытка %s/%s)", e, attempt, max_attempts)
+            await asyncio.sleep(2 * attempt)
+            if attempt >= max_attempts:
+                raise
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
@@ -234,61 +279,71 @@ def compute_phash(raw_bytes: bytes) -> str | None:
 async def admin_add_card_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    photo = update.message.photo[-1]
-    tg_file = await context.bot.get_file(photo.file_id)
-    raw = await tg_file.download_as_bytearray()
-    phash = compute_phash(bytes(raw))
-    dup = storage.find_duplicate(phash)
-    if dup:
+    try:
+        photo = update.message.photo[-1]
+        tg_file = await with_retries(context.bot.get_file, photo.file_id)
+        raw = await with_retries(tg_file.download_as_bytearray)
+        phash = compute_phash(bytes(raw))
+        dup = storage.find_duplicate(phash)
+        if dup:
+            await update.message.reply_text(
+                f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
+            )
+            return
+        new_id = storage.add_card(photo.file_id, kind="photo", phash=phash)
         await update.message.reply_text(
-            f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
+            f"Добавлено! Карточка #{new_id}. Всего карточек: {storage.count()}.",
+            reply_markup=DRAW_BUTTON,
         )
-        return
-    new_id = storage.add_card(photo.file_id, kind="photo", phash=phash)
-    await update.message.reply_text(
-        f"Добавлено! Карточка #{new_id}. Всего карточек: {storage.count()}.",
-        reply_markup=DRAW_BUTTON,
-    )
+    except Exception as e:
+        logger.exception("Ошибка при добавлении фото-карточки")
+        await update.message.reply_text(f"Не удалось добавить карточку: {e}", reply_markup=DRAW_BUTTON)
 
 
 async def admin_add_card_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    doc = update.message.document
-    tg_file = await context.bot.get_file(doc.file_id)
-    raw = await tg_file.download_as_bytearray()
     try:
-        pages = render_pdf_all_pages(bytes(raw))
-    except Exception as e:
-        logger.warning("Не удалось отрендерить PDF: %s", e)
-        await update.message.reply_text("Не получилось прочитать этот PDF, попробуй другой файл.")
-        return
-    if not pages:
-        await update.message.reply_text("В этом PDF не нашлось страниц.")
-        return
-    phash = compute_phash(pages[0])
-    dup = storage.find_duplicate(phash)
-    if dup:
-        await update.message.reply_text(
-            f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
-        )
-        return
-    file_ids = []
-    for page_bytes in pages:
+        doc = update.message.document
+        tg_file = await with_retries(context.bot.get_file, doc.file_id)
+        raw = await with_retries(tg_file.download_as_bytearray)
         try:
-            optimized = optimize_image_bytes(page_bytes)
-        except Exception:
-            optimized = page_bytes
-        sent = await context.bot.send_photo(chat_id=ADMIN_ID, photo=io.BytesIO(optimized))
-        file_ids.append(sent.photo[-1].file_id)
-    if len(file_ids) == 1:
-        new_id = storage.add_card(file_ids[0], kind="photo", phash=phash)
-    else:
-        new_id = storage.add_multi_card(file_ids, kind="photo", phash=phash)
-    await update.message.reply_text(
-        f"Добавлено из PDF ({len(file_ids)} стр.)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
-        reply_markup=DRAW_BUTTON,
-    )
+            pages = render_pdf_all_pages(bytes(raw))
+        except Exception as e:
+            logger.warning("Не удалось отрендерить PDF: %s", e)
+            await update.message.reply_text("Не получилось прочитать этот PDF, попробуй другой файл.")
+            return
+        if not pages:
+            await update.message.reply_text("В этом PDF не нашлось страниц.")
+            return
+        phash = compute_phash(pages[0])
+        dup = storage.find_duplicate(phash)
+        if dup:
+            await update.message.reply_text(
+                f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
+            )
+            return
+        file_ids = []
+        for page_bytes in pages:
+            try:
+                optimized = optimize_image_bytes(page_bytes)
+            except Exception:
+                optimized = page_bytes
+            sent = await send_photo_with_retry(
+                lambda **kw: context.bot.send_photo(chat_id=ADMIN_ID, **kw), optimized
+            )
+            file_ids.append(sent.photo[-1].file_id)
+        if len(file_ids) == 1:
+            new_id = storage.add_card(file_ids[0], kind="photo", phash=phash)
+        else:
+            new_id = storage.add_multi_card(file_ids, kind="photo", phash=phash)
+        await update.message.reply_text(
+            f"Добавлено из PDF ({len(file_ids)} стр.)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
+            reply_markup=DRAW_BUTTON,
+        )
+    except Exception as e:
+        logger.exception("Ошибка при добавлении PDF-карточки")
+        await update.message.reply_text(f"Не удалось добавить карточку из PDF: {e}", reply_markup=DRAW_BUTTON)
 
 
 async def admin_add_card_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -297,28 +352,32 @@ async def admin_add_card_document(update: Update, context: ContextTypes.DEFAULT_
     doc = update.message.document
     if not doc.mime_type or not doc.mime_type.startswith("image/"):
         return
-    tg_file = await context.bot.get_file(doc.file_id)
-    raw = await tg_file.download_as_bytearray()
-    phash = compute_phash(bytes(raw))
-    dup = storage.find_duplicate(phash)
-    if dup:
-        await update.message.reply_text(
-            f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
-        )
-        return
     try:
-        optimized = optimize_image_bytes(bytes(raw))
+        tg_file = await with_retries(context.bot.get_file, doc.file_id)
+        raw = await with_retries(tg_file.download_as_bytearray)
+        phash = compute_phash(bytes(raw))
+        dup = storage.find_duplicate(phash)
+        if dup:
+            await update.message.reply_text(
+                f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
+            )
+            return
+        try:
+            optimized = optimize_image_bytes(bytes(raw))
+        except Exception as e:
+            logger.warning("Не удалось обработать картинку: %s", e)
+            await update.message.reply_text("Не получилось обработать эту картинку, попробуй другой файл.")
+            return
+        sent = await send_photo_with_retry(update.message.reply_photo, optimized)
+        photo_file_id = sent.photo[-1].file_id
+        new_id = storage.add_card(photo_file_id, kind="photo", phash=phash)
+        await update.message.reply_text(
+            f"Добавлено (оптимизировано)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
+            reply_markup=DRAW_BUTTON,
+        )
     except Exception as e:
-        logger.warning("Не удалось обработать картинку: %s", e)
-        await update.message.reply_text("Не получилось обработать эту картинку, попробуй другой файл.")
-        return
-    sent = await update.message.reply_photo(photo=io.BytesIO(optimized))
-    photo_file_id = sent.photo[-1].file_id
-    new_id = storage.add_card(photo_file_id, kind="photo", phash=phash)
-    await update.message.reply_text(
-        f"Добавлено (оптимизировано)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
-        reply_markup=DRAW_BUTTON,
-    )
+        logger.exception("Ошибка при добавлении карточки из файла")
+        await update.message.reply_text(f"Не удалось добавить карточку: {e}", reply_markup=DRAW_BUTTON)
 
 
 async def reprocess_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
