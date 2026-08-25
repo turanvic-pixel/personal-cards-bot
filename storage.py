@@ -4,6 +4,7 @@ import logging
 
 import imagehash
 from github import Github, Auth
+from github.GithubException import GithubException
 
 logger = logging.getLogger(__name__)
 
@@ -55,25 +56,43 @@ class CardStorage:
         """Сохранить текущее состояние self.cards (например, после ручного изменения file_id/kind)."""
         self._save(commit_message)
 
-    def add_card(self, file_id: str, kind: str = "photo", phash: str | None = None) -> int:
-        new_id = max((c["id"] for c in self.cards), default=0) + 1
-        card = {"id": new_id, "file_id": file_id, "kind": kind}
-        if phash:
-            card["phash"] = phash
-        self.cards.append(card)
-        self._save(f"add card #{new_id}")
-        return new_id
+    def add_card(self, file_id: str, kind: str = "photo", phash: str | None = None, max_attempts: int = 5) -> int:
+        for attempt in range(max_attempts):
+            new_id = max((c["id"] for c in self.cards), default=0) + 1
+            card = {"id": new_id, "file_id": file_id, "kind": kind}
+            if phash:
+                card["phash"] = phash
+            self.cards.append(card)
+            try:
+                self._save(f"add card #{new_id}")
+                return new_id
+            except GithubException as e:
+                self.cards.pop()
+                if getattr(e, "status", None) == 409 and attempt < max_attempts - 1:
+                    logger.warning("Конфликт версии cards.json (add_card), перечитываю и повторяю: попытка %s", attempt + 1)
+                    self._load()
+                    continue
+                raise
 
-    def add_multi_card(self, file_ids: list, kind: str = "photo", phash: str | None = None) -> int:
+    def add_multi_card(self, file_ids: list, kind: str = "photo", phash: str | None = None, max_attempts: int = 5) -> int:
         """Карточка из нескольких страниц (напр. многостраничный PDF) — при показе
         все страницы отправляются одна за другой, это одна карточка в колоде."""
-        new_id = max((c["id"] for c in self.cards), default=0) + 1
-        card = {"id": new_id, "file_ids": list(file_ids), "kind": kind}
-        if phash:
-            card["phash"] = phash
-        self.cards.append(card)
-        self._save(f"add multi-page card #{new_id} ({len(file_ids)} pages)")
-        return new_id
+        for attempt in range(max_attempts):
+            new_id = max((c["id"] for c in self.cards), default=0) + 1
+            card = {"id": new_id, "file_ids": list(file_ids), "kind": kind}
+            if phash:
+                card["phash"] = phash
+            self.cards.append(card)
+            try:
+                self._save(f"add multi-page card #{new_id} ({len(file_ids)} pages)")
+                return new_id
+            except GithubException as e:
+                self.cards.pop()
+                if getattr(e, "status", None) == 409 and attempt < max_attempts - 1:
+                    logger.warning("Конфликт версии cards.json (add_multi_card), перечитываю и повторяю: попытка %s", attempt + 1)
+                    self._load()
+                    continue
+                raise
 
     def find_duplicate(self, phash: str | None, max_distance: int = 0):
         if not phash:
@@ -115,13 +134,23 @@ class CardStorage:
             return self.next_card_for_user(user_id)
         return card
 
-    def delete_card(self, card_id: int) -> bool:
-        before = len(self.cards)
-        self.cards = [c for c in self.cards if c["id"] != card_id]
-        if len(self.cards) == before:
-            return False
-        self._save(f"delete card #{card_id}")
-        return True
+    def delete_card(self, card_id: int, max_attempts: int = 5) -> bool:
+        for attempt in range(max_attempts):
+            before = list(self.cards)
+            self.cards = [c for c in self.cards if c["id"] != card_id]
+            if len(self.cards) == len(before):
+                return False
+            try:
+                self._save(f"delete card #{card_id}")
+                return True
+            except GithubException as e:
+                self.cards = before
+                if getattr(e, "status", None) == 409 and attempt < max_attempts - 1:
+                    logger.warning("Конфликт версии cards.json (delete_card), перечитываю и повторяю: попытка %s", attempt + 1)
+                    self._load()
+                    continue
+                raise
+        return False
 
     def list_ids(self) -> list:
         return [c["id"] for c in self.cards]
