@@ -593,6 +593,12 @@
       "file_id": "AgACAgIAAxkDAAIEDmqNSzYZJdkwh9ya1DhnklNfx3KDAALAIGsbz0dpSLZVpmT6N4n7AQADAgADeQADPQQ",
       "kind": "photo",
       "phash": "89a77059e39c3749"
+    },
+    {
+      "id": 100,
+      "file_id": "AgACAgIAAxkDAAIEEmqNSzhGuraZTSyqutgtM6mlIFggAALBIGsbz0dpSE3K4yuqpr1bAQADAgADeQADPQQ",
+      "kind": "photo",
+      "phash": "b3c6d9333639c238"
     }
   ]
 }
