@@ -1,3 +1,10 @@
 {
-  "cards": []
+  "cards": [
+    {
+      "id": 1,
+      "file_id": "AgACAgIAAxkDAAMPao09_JaBrHWCsVg-8Xo7GKhYrxwAAuYfaxvPR2lI2W7Mfj7PKXEBAAMCAAN3AAM9BA",
+      "kind": "photo",
+      "phash": "afe309b749c0949d"
+    }
+  ]
 }
