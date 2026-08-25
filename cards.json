@@ -796,6 +796,11 @@
       "id": 9999,
       "file_id": "FROM_OTHER_PROCESS",
       "kind": "photo"
+    },
+    {
+      "id": 10000,
+      "file_id": "MY_NEW_CARD",
+      "kind": "photo"
     }
   ]
 }
