@@ -791,6 +791,11 @@
       "file_id": "AgACAgIAAxkDAAIGOGqNTUMfaWOcJUBjYJNErEJhKVgnAAIIIWsbz0dpSBQDrJdeYBPoAQADAgADeQADPQQ",
       "kind": "photo",
       "phash": "d827f209c83f7266"
+    },
+    {
+      "id": 9999,
+      "file_id": "FROM_OTHER_PROCESS",
+      "kind": "photo"
     }
   ]
 }
