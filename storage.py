@@ -8,6 +8,14 @@ from github import Github, Auth
 logger = logging.getLogger(__name__)
 
 
+def card_file_ids(card: dict) -> list:
+    """Список file_id карточки — поддерживает и старый формат (один file_id),
+    и новый многостраничный (file_ids: список)."""
+    if "file_ids" in card:
+        return card["file_ids"]
+    return [card["file_id"]]
+
+
 class CardStorage:
     """Хранит карточки (file_id фото + текст) в cards.json в GitHub-репозитории.
 
@@ -54,6 +62,17 @@ class CardStorage:
             card["phash"] = phash
         self.cards.append(card)
         self._save(f"add card #{new_id}")
+        return new_id
+
+    def add_multi_card(self, file_ids: list, kind: str = "photo", phash: str | None = None) -> int:
+        """Карточка из нескольких страниц (напр. многостраничный PDF) — при показе
+        все страницы отправляются одна за другой, это одна карточка в колоде."""
+        new_id = max((c["id"] for c in self.cards), default=0) + 1
+        card = {"id": new_id, "file_ids": list(file_ids), "kind": kind}
+        if phash:
+            card["phash"] = phash
+        self.cards.append(card)
+        self._save(f"add multi-page card #{new_id} ({len(file_ids)} pages)")
         return new_id
 
     def find_duplicate(self, phash: str | None, max_distance: int = 6):
