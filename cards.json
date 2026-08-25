@@ -245,6 +245,12 @@
       "file_id": "AgACAgIAAxkDAAICFGqNQtltt15HQI9anrOHiAhOslepAAJbIGsbz0dpSOjfmD0qGJUdAQADAgADeQADPQQ",
       "kind": "photo",
       "phash": "be68c91e93c19d34"
+    },
+    {
+      "id": 42,
+      "file_id": "AgACAgIAAxkDAAICHGqNQtsvD4jV1hGjdwIqtL1LsBu0AAJcIGsbz0dpSCVTPxKqrV_tAQADAgADdwADPQQ",
+      "kind": "photo",
+      "phash": "b425cb9f34e2643c"
     }
   ]
 }
