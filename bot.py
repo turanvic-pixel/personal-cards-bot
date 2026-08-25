@@ -21,7 +21,7 @@ from telegram.ext import (
     filters,
 )
 
-from storage import CardStorage, FavoritesStore, MetaStore, ReminderStore, UserStore
+from storage import CardStorage, FavoritesStore, MetaStore, ReminderStore, UserStore, card_file_ids
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("carddeck-bot")
@@ -141,10 +141,17 @@ async def draw_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     record_view(update.effective_user.id)
     caption = f"Карточка #{card['id']}" if update.effective_user.id == ADMIN_ID else None
     kb = _fav_keyboard(card["id"])
-    if card.get("kind") == "document":
-        await update.message.reply_document(document=card["file_id"], caption=caption, reply_markup=kb)
-    else:
-        await update.message.reply_photo(photo=card["file_id"], caption=caption, reply_markup=kb)
+    file_ids = card_file_ids(card)
+    for i, fid in enumerate(file_ids):
+        is_last = i == len(file_ids) - 1
+        if card.get("kind") == "document":
+            await update.message.reply_document(
+                document=fid, caption=caption if is_last else None, reply_markup=kb if is_last else None
+            )
+        else:
+            await update.message.reply_photo(
+                photo=fid, caption=caption if is_last else None, reply_markup=kb if is_last else None
+            )
 
 
 async def favorite_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -173,10 +180,13 @@ async def favorites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if card is None:
             continue
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("Убрать из избранного", callback_data=f"unfav:{card_id}")]])
-        if card.get("kind") == "document":
-            await update.message.reply_document(document=card["file_id"], reply_markup=kb)
-        else:
-            await update.message.reply_photo(photo=card["file_id"], reply_markup=kb)
+        file_ids = card_file_ids(card)
+        for i, fid in enumerate(file_ids):
+            is_last = i == len(file_ids) - 1
+            if card.get("kind") == "document":
+                await update.message.reply_document(document=fid, reply_markup=kb if is_last else None)
+            else:
+                await update.message.reply_photo(photo=fid, reply_markup=kb if is_last else None)
     if len(ids) > 20:
         await update.message.reply_text(f"И ещё {len(ids) - 20} в избранном — вызови /favorites ещё раз позже.")
 
@@ -197,15 +207,17 @@ def optimize_image_bytes(raw_bytes: bytes) -> bytes:
     return out.getvalue()
 
 
-def render_pdf_first_page(pdf_bytes: bytes) -> bytes:
-    """Рендерит первую страницу PDF в PNG-байты нужного разрешения."""
+def render_pdf_all_pages(pdf_bytes: bytes) -> list:
+    """Рендерит все страницы PDF в PNG-байты нужного разрешения, по порядку."""
     pdf = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     try:
-        page = pdf[0]
-        zoom = MAX_IMAGE_DIMENSION / max(page.rect.width, page.rect.height)
-        matrix = pymupdf.Matrix(zoom, zoom)
-        pix = page.get_pixmap(matrix=matrix)
-        return pix.tobytes("png")
+        pages = []
+        for page in pdf:
+            zoom = MAX_IMAGE_DIMENSION / max(page.rect.width, page.rect.height)
+            matrix = pymupdf.Matrix(zoom, zoom)
+            pix = page.get_pixmap(matrix=matrix)
+            pages.append(pix.tobytes("png"))
+        return pages
     finally:
         pdf.close()
 
@@ -246,29 +258,35 @@ async def admin_add_card_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE)
     tg_file = await context.bot.get_file(doc.file_id)
     raw = await tg_file.download_as_bytearray()
     try:
-        page_png = render_pdf_first_page(bytes(raw))
+        pages = render_pdf_all_pages(bytes(raw))
     except Exception as e:
         logger.warning("Не удалось отрендерить PDF: %s", e)
         await update.message.reply_text("Не получилось прочитать этот PDF, попробуй другой файл.")
         return
-    phash = compute_phash(page_png)
+    if not pages:
+        await update.message.reply_text("В этом PDF не нашлось страниц.")
+        return
+    phash = compute_phash(pages[0])
     dup = storage.find_duplicate(phash)
     if dup:
         await update.message.reply_text(
             f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
         )
         return
-    try:
-        optimized = optimize_image_bytes(page_png)
-    except Exception as e:
-        logger.warning("Не удалось обработать картинку из PDF: %s", e)
-        await update.message.reply_text("Не получилось обработать эту карточку, попробуй другой файл.")
-        return
-    sent = await update.message.reply_photo(photo=io.BytesIO(optimized))
-    photo_file_id = sent.photo[-1].file_id
-    new_id = storage.add_card(photo_file_id, kind="photo", phash=phash)
+    file_ids = []
+    for page_bytes in pages:
+        try:
+            optimized = optimize_image_bytes(page_bytes)
+        except Exception:
+            optimized = page_bytes
+        sent = await context.bot.send_photo(chat_id=ADMIN_ID, photo=io.BytesIO(optimized))
+        file_ids.append(sent.photo[-1].file_id)
+    if len(file_ids) == 1:
+        new_id = storage.add_card(file_ids[0], kind="photo", phash=phash)
+    else:
+        new_id = storage.add_multi_card(file_ids, kind="photo", phash=phash)
     await update.message.reply_text(
-        f"Добавлено из PDF (первая страница)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
+        f"Добавлено из PDF ({len(file_ids)} стр.)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
         reply_markup=DRAW_BUTTON,
     )
 
@@ -432,11 +450,14 @@ async def card_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if card is None:
         await update.message.reply_text(f"Карточка #{card_id} не найдена.")
         return
-    caption = f"Карточка #{card_id}. Чтобы удалить: /delete {card_id}"
-    if card.get("kind") == "document":
-        await update.message.reply_document(document=card["file_id"], caption=caption)
-    else:
-        await update.message.reply_photo(photo=card["file_id"], caption=caption)
+    caption = f"Карточка #{card_id} ({len(card_file_ids(card))} стр.). Чтобы удалить: /delete {card_id}"
+    file_ids = card_file_ids(card)
+    for i, fid in enumerate(file_ids):
+        is_last = i == len(file_ids) - 1
+        if card.get("kind") == "document":
+            await update.message.reply_document(document=fid, caption=caption if is_last else None)
+        else:
+            await update.message.reply_photo(photo=fid, caption=caption if is_last else None)
 
 
 async def delete_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -475,23 +496,26 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     failed = []
 
     for card in storage.cards:
-        try:
-            tg_file = await context.bot.get_file(card["file_id"])
-            data = await tg_file.download_as_bytearray()
-        except Exception as e:
-            logger.warning("Не удалось скачать карточку #%s: %s", card["id"], e)
-            failed.append(card["id"])
-            continue
-        zf.writestr(f"card_{card['id']:04d}.jpg", bytes(data))
-        count_in_zip += 1
-        if buf.tell() > MAX_ZIP_BYTES:
-            zf.close()
-            buf.seek(0)
-            await update.message.reply_document(document=buf, filename=f"cards_part{part}.zip")
-            part += 1
-            buf = io.BytesIO()
-            zf = zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED)
-            count_in_zip = 0
+        file_ids = card_file_ids(card)
+        for page_num, fid in enumerate(file_ids, start=1):
+            try:
+                tg_file = await context.bot.get_file(fid)
+                data = await tg_file.download_as_bytearray()
+            except Exception as e:
+                logger.warning("Не удалось скачать карточку #%s (стр. %s): %s", card["id"], page_num, e)
+                failed.append(card["id"])
+                continue
+            suffix = f"_p{page_num}" if len(file_ids) > 1 else ""
+            zf.writestr(f"card_{card['id']:04d}{suffix}.jpg", bytes(data))
+            count_in_zip += 1
+            if buf.tell() > MAX_ZIP_BYTES:
+                zf.close()
+                buf.seek(0)
+                await update.message.reply_document(document=buf, filename=f"cards_part{part}.zip")
+                part += 1
+                buf = io.BytesIO()
+                zf = zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED)
+                count_in_zip = 0
 
     zf.close()
     if count_in_zip > 0:
@@ -522,10 +546,14 @@ async def send_daily_card(context: ContextTypes.DEFAULT_TYPE):
         return
     record_view(chat_id)
     kb = _fav_keyboard(card["id"])
-    if card.get("kind") == "document":
-        await context.bot.send_document(chat_id=chat_id, document=card["file_id"], caption="🌅 Карточка дня", reply_markup=kb)
-    else:
-        await context.bot.send_photo(chat_id=chat_id, photo=card["file_id"], caption="🌅 Карточка дня", reply_markup=kb)
+    file_ids = card_file_ids(card)
+    for i, fid in enumerate(file_ids):
+        is_last = i == len(file_ids) - 1
+        cap = "🌅 Карточка дня" if is_last else None
+        if card.get("kind") == "document":
+            await context.bot.send_document(chat_id=chat_id, document=fid, caption=cap, reply_markup=kb if is_last else None)
+        else:
+            await context.bot.send_photo(chat_id=chat_id, photo=fid, caption=cap, reply_markup=kb if is_last else None)
 
 
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
