@@ -1343,6 +1343,12 @@
       "file_id": "AgACAgIAAxkDAAIMKWqNVSaQVAiWhAm87k1sgh7DcNjNAAJ3IWsbz0dpSO4S8NiEl8yuAQADAgADdwADPQQ",
       "kind": "photo",
       "phash": "b38ccc31d1cdc366"
+    },
+    {
+      "id": 225,
+      "file_id": "AgACAgIAAxkDAAIMK2qNVSh1rvi701n4GJubhlETy1o5AAJ4IWsbz0dpSCsnkwwUc6cnAQADAgADeQADPQQ",
+      "kind": "photo",
+      "phash": "9c629d62323d663d"
     }
   ]
 }
