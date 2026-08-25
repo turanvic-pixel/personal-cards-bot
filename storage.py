@@ -75,7 +75,7 @@ class CardStorage:
         self._save(f"add multi-page card #{new_id} ({len(file_ids)} pages)")
         return new_id
 
-    def find_duplicate(self, phash: str | None, max_distance: int = 6):
+    def find_duplicate(self, phash: str | None, max_distance: int = 0):
         if not phash:
             return None
         try:
