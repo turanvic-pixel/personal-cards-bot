@@ -10,7 +10,7 @@ import aiohttp
 from aiohttp import web
 from PIL import Image
 import imagehash
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -31,6 +31,7 @@ GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "carddeck-bot")
 EXTERNAL_URL = os.environ.get("EXTERNAL_URL")  # напр. https://carddeck-bot.onrender.com
 PORT = int(os.environ.get("PORT", 10000))
+OLD_BOT_TOKEN = os.environ.get("OLD_BOT_TOKEN")  # опционально: токен бота-источника для команды /import_cards
 
 storage = CardStorage(GITHUB_TOKEN, GITHUB_REPO)
 favorites = FavoritesStore(GITHUB_TOKEN, GITHUB_REPO)
@@ -282,6 +283,45 @@ async def reprocess_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if fixed > 0:
         storage.persist(f"reprocess {fixed} document-cards into optimized photo cards")
     msg = f"Готово! Пересобрано: {fixed}."
+    if failed:
+        msg += f" Не получилось: {failed}."
+    await update.message.reply_text(msg, reply_markup=DRAW_BUTTON)
+
+
+async def import_cards_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Переносит карточки из другого бота: file_id в Telegram привязаны к конкретному боту,
+    поэтому просто скопировать cards.json между ботами недостаточно — картинки нужно
+    скачать через старого бота (OLD_BOT_TOKEN) и перезалить уже от имени этого бота."""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    if not OLD_BOT_TOKEN:
+        await update.message.reply_text("Переменная OLD_BOT_TOKEN не задана — переносить неоткуда.")
+        return
+    old_bot = Bot(token=OLD_BOT_TOKEN)
+    await update.message.reply_text(f"Переношу {storage.count()} карточек из старого бота, это займёт время...")
+    fixed = 0
+    failed = []
+    for card in storage.cards:
+        try:
+            tg_file = await old_bot.get_file(card["file_id"])
+            raw = bytes(await tg_file.download_as_bytearray())
+            phash = compute_phash(raw)
+            try:
+                optimized = optimize_image_bytes(raw)
+            except Exception:
+                optimized = raw
+            sent = await context.bot.send_photo(chat_id=ADMIN_ID, photo=io.BytesIO(optimized))
+            card["file_id"] = sent.photo[-1].file_id
+            card["kind"] = "photo"
+            if phash:
+                card["phash"] = phash
+            fixed += 1
+        except Exception as e:
+            logger.warning("Не удалось перенести карточку #%s: %s", card["id"], e)
+            failed.append(card["id"])
+    if fixed > 0:
+        storage.persist(f"import {fixed} cards from old bot via /import_cards")
+    msg = f"Готово! Перенесено: {fixed}."
     if failed:
         msg += f" Не получилось: {failed}."
     await update.message.reply_text(msg, reply_markup=DRAW_BUTTON)
@@ -543,6 +583,7 @@ async def main():
     application.add_handler(CommandHandler("whoami", whoami))
     application.add_handler(CommandHandler("export", export_cmd))
     application.add_handler(CommandHandler("reprocess", reprocess_cmd))
+    application.add_handler(CommandHandler("import_cards", import_cards_cmd))
     application.add_handler(CommandHandler("hash_missing", hash_missing_cmd))
     application.add_handler(CommandHandler("favorites", favorites_cmd))
     application.add_handler(CommandHandler("remind_on", remind_on_cmd))
