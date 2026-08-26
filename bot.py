@@ -552,6 +552,7 @@ async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     if update.effective_user.id != ADMIN_ID:
         return
     if not context.user_data.get("awaiting_text_card"):
+        await start(update, context)
         return
     context.user_data["awaiting_text_card"] = False
     text = update.message.text
