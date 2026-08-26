@@ -280,8 +280,8 @@ FONT_PATH = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
 def render_text_card(text: str) -> bytes:
     """Оформляет обычный текст в карточку: фон + красиво уложенный текст с автоподбором размера."""
     width, height = TEXT_CARD_SIZE
-    bg_color = (28, 30, 38)
-    text_color = (235, 230, 215)
+    bg_color = (240, 233, 220)
+    text_color = (40, 34, 28)
     margin = 90
 
     img = Image.new("RGB", (width, height), bg_color)
