@@ -1630,6 +1630,13 @@
       "kind": "photo",
       "phash": "ab5a3836e516e42b",
       "content_hash": "1796c64ece6ed6a6900eba248e279d0e23781f29c5aedd2bc5b4aa5267827dde"
+    },
+    {
+      "id": 268,
+      "file_id": "AgACAgIAAxkDAAIU62qOw-9p7Xn_iXegGHTNLr7MA-JkAALPH2sbi6x5SNSIkV-A6QZOAQADAgADeQADPQQ",
+      "kind": "photo",
+      "phash": "8e9bd28d09b1d16b",
+      "content_hash": "20a07c37f13a6648c58833b161d82f6c276d39c14d887ce8821a0e021df9f99a"
     }
   ]
 }
