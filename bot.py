@@ -267,6 +267,13 @@ def render_pdf_all_pages(pdf_bytes: bytes) -> list:
         pdf.close()
 
 
+import hashlib
+
+
+def compute_content_hash(raw_bytes: bytes) -> str:
+    return hashlib.sha256(raw_bytes).hexdigest()
+
+
 def compute_phash(raw_bytes: bytes) -> str | None:
     try:
         img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
@@ -284,13 +291,14 @@ async def admin_add_card_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         tg_file = await with_retries(context.bot.get_file, photo.file_id)
         raw = await with_retries(tg_file.download_as_bytearray)
         phash = compute_phash(bytes(raw))
-        dup = storage.find_duplicate(phash)
+        content_hash = compute_content_hash(bytes(raw))
+        dup = storage.find_duplicate(content_hash=content_hash)
         if dup:
             await update.message.reply_text(
                 f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
             )
             return
-        new_id = storage.add_card(photo.file_id, kind="photo", phash=phash)
+        new_id = storage.add_card(photo.file_id, kind="photo", phash=phash, content_hash=content_hash)
         await update.message.reply_text(
             f"Добавлено! Карточка #{new_id}. Всего карточек: {storage.count()}.",
             reply_markup=DRAW_BUTTON,
@@ -317,7 +325,8 @@ async def admin_add_card_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("В этом PDF не нашлось страниц.")
             return
         phash = compute_phash(pages[0])
-        dup = storage.find_duplicate(phash)
+        content_hash = compute_content_hash(bytes(raw))
+        dup = storage.find_duplicate(content_hash=content_hash)
         if dup:
             await update.message.reply_text(
                 f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
@@ -334,9 +343,9 @@ async def admin_add_card_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             file_ids.append(sent.photo[-1].file_id)
         if len(file_ids) == 1:
-            new_id = storage.add_card(file_ids[0], kind="photo", phash=phash)
+            new_id = storage.add_card(file_ids[0], kind="photo", phash=phash, content_hash=content_hash)
         else:
-            new_id = storage.add_multi_card(file_ids, kind="photo", phash=phash)
+            new_id = storage.add_multi_card(file_ids, kind="photo", phash=phash, content_hash=content_hash)
         await update.message.reply_text(
             f"Добавлено из PDF ({len(file_ids)} стр.)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
             reply_markup=DRAW_BUTTON,
@@ -356,7 +365,8 @@ async def admin_add_card_document(update: Update, context: ContextTypes.DEFAULT_
         tg_file = await with_retries(context.bot.get_file, doc.file_id)
         raw = await with_retries(tg_file.download_as_bytearray)
         phash = compute_phash(bytes(raw))
-        dup = storage.find_duplicate(phash)
+        content_hash = compute_content_hash(bytes(raw))
+        dup = storage.find_duplicate(content_hash=content_hash)
         if dup:
             await update.message.reply_text(
                 f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
@@ -370,7 +380,7 @@ async def admin_add_card_document(update: Update, context: ContextTypes.DEFAULT_
             return
         sent = await send_photo_with_retry(update.message.reply_photo, optimized)
         photo_file_id = sent.photo[-1].file_id
-        new_id = storage.add_card(photo_file_id, kind="photo", phash=phash)
+        new_id = storage.add_card(photo_file_id, kind="photo", phash=phash, content_hash=content_hash)
         await update.message.reply_text(
             f"Добавлено (оптимизировано)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
             reply_markup=DRAW_BUTTON,
@@ -395,12 +405,14 @@ async def reprocess_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tg_file = await context.bot.get_file(card["file_id"])
             raw = await tg_file.download_as_bytearray()
             phash = compute_phash(bytes(raw))
+            content_hash = compute_content_hash(bytes(raw))
             optimized = optimize_image_bytes(bytes(raw))
             sent = await context.bot.send_photo(chat_id=ADMIN_ID, photo=io.BytesIO(optimized))
             card["file_id"] = sent.photo[-1].file_id
             card["kind"] = "photo"
             if phash:
                 card["phash"] = phash
+            card["content_hash"] = content_hash
             fixed += 1
         except Exception as e:
             logger.warning("Не удалось пересобрать карточку #%s: %s", card["id"], e)
@@ -431,6 +443,7 @@ async def import_cards_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tg_file = await old_bot.get_file(card["file_id"])
             raw = bytes(await tg_file.download_as_bytearray())
             phash = compute_phash(raw)
+            content_hash = compute_content_hash(raw)
             try:
                 optimized = optimize_image_bytes(raw)
             except Exception:
@@ -440,6 +453,7 @@ async def import_cards_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             card["kind"] = "photo"
             if phash:
                 card["phash"] = phash
+            card["content_hash"] = content_hash
             fixed += 1
         except Exception as e:
             logger.warning("Не удалось перенести карточку #%s: %s", card["id"], e)
@@ -455,7 +469,7 @@ async def import_cards_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def hash_missing_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    missing = [c for c in storage.cards if not c.get("phash")]
+    missing = [c for c in storage.cards if not c.get("content_hash")]
     if not missing:
         await update.message.reply_text("У всех карточек уже есть хэш для проверки дублей.")
         return
@@ -464,19 +478,20 @@ async def hash_missing_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     failed = []
     for card in missing:
         try:
-            tg_file = await context.bot.get_file(card["file_id"])
+            first_file_id = card_file_ids(card)[0]
+            tg_file = await context.bot.get_file(first_file_id)
             raw = await tg_file.download_as_bytearray()
+            content_hash = compute_content_hash(bytes(raw))
             phash = compute_phash(bytes(raw))
+            card["content_hash"] = content_hash
             if phash:
                 card["phash"] = phash
-                fixed += 1
-            else:
-                failed.append(card["id"])
+            fixed += 1
         except Exception as e:
             logger.warning("Не удалось посчитать хэш для карточки #%s: %s", card["id"], e)
             failed.append(card["id"])
     if fixed > 0:
-        storage.persist(f"backfill phash for {fixed} cards")
+        storage.persist(f"backfill content_hash for {fixed} cards")
     msg = f"Готово! Хэш посчитан для {fixed} карточек."
     if failed:
         msg += f" Не получилось: {failed}."
