@@ -1617,12 +1617,6 @@
       ],
       "kind": "photo",
       "phash": "95b5346a4ada7a92"
-    },
-    {
-      "id": 266,
-      "file_id": "FAKE_TEXT_CARD_ID",
-      "kind": "photo",
-      "content_hash": "1326ddc6cdb6cc28db5bf351325eda826deec1d8512453754990b54f3efdfa2c"
     }
   ]
 }
