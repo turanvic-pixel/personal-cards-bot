@@ -8,7 +8,7 @@ import zipfile
 
 import aiohttp
 from aiohttp import web
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import imagehash
 import pymupdf
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
@@ -270,6 +270,48 @@ def render_pdf_all_pages(pdf_bytes: bytes) -> list:
 import hashlib
 
 
+import textwrap
+
+
+TEXT_CARD_SIZE = (1200, 1600)
+FONT_PATH = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
+
+
+def render_text_card(text: str) -> bytes:
+    """Оформляет обычный текст в карточку: фон + красиво уложенный текст с автоподбором размера."""
+    width, height = TEXT_CARD_SIZE
+    bg_color = (28, 30, 38)
+    text_color = (235, 230, 215)
+    margin = 90
+
+    img = Image.new("RGB", (width, height), bg_color)
+    draw = ImageDraw.Draw(img)
+
+    for font_size in range(64, 17, -2):
+        font = ImageFont.truetype(FONT_PATH, font_size)
+        avg_char_w = font.getbbox("Ж")[2] or (font_size * 0.6)
+        wrap_width = max(10, int((width - 2 * margin) / avg_char_w))
+        lines = []
+        for paragraph in text.split("\n"):
+            if not paragraph.strip():
+                lines.append("")
+                continue
+            lines.extend(textwrap.wrap(paragraph, width=wrap_width) or [""])
+        line_height = int(font_size * 1.35)
+        total_height = line_height * len(lines)
+        if total_height <= height - 2 * margin:
+            break
+
+    y = (height - total_height) // 2
+    for line in lines:
+        draw.text((margin, y), line, font=font, fill=text_color)
+        y += line_height
+
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=92)
+    return out.getvalue()
+
+
 def compute_content_hash(raw_bytes: bytes) -> str:
     return hashlib.sha256(raw_bytes).hexdigest()
 
@@ -496,6 +538,33 @@ async def hash_missing_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if failed:
         msg += f" Не получилось: {failed}."
     await update.message.reply_text(msg, reply_markup=DRAW_BUTTON)
+
+
+async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    text = update.message.text
+    if not text or not text.strip():
+        return
+    try:
+        content_hash = compute_content_hash(text.strip().encode("utf-8"))
+        dup = storage.find_duplicate(content_hash=content_hash)
+        if dup:
+            await update.message.reply_text(
+                f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
+            )
+            return
+        img_bytes = render_text_card(text)
+        sent = await send_photo_with_retry(update.message.reply_photo, img_bytes)
+        photo_file_id = sent.photo[-1].file_id
+        new_id = storage.add_card(photo_file_id, kind="photo", content_hash=content_hash)
+        await update.message.reply_text(
+            f"Добавлено из текста! Карточка #{new_id}. Всего карточек: {storage.count()}.",
+            reply_markup=DRAW_BUTTON,
+        )
+    except Exception as e:
+        logger.exception("Ошибка при добавлении текстовой карточки")
+        await update.message.reply_text(f"Не удалось добавить карточку из текста: {e}", reply_markup=DRAW_BUTTON)
 
 
 async def admin_ignore_non_admin_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -749,6 +818,7 @@ async def main():
     application.add_handler(MessageHandler(filters.Document.PDF & filters.User(ADMIN_ID), admin_add_card_pdf))
     application.add_handler(MessageHandler(filters.Document.IMAGE & filters.User(ADMIN_ID), admin_add_card_document))
     application.add_handler(MessageHandler(filters.PHOTO & ~filters.User(ADMIN_ID), admin_ignore_non_admin_photo))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.User(ADMIN_ID), admin_add_card_text))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
 
     for uid_str, time_str in reminders.all().items():
