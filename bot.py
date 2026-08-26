@@ -93,12 +93,13 @@ KEYBOARD_VERSION = "v5-favorites-stats-reminders"
 REMINDER_BUTTON_TEXT = "⏰ Напоминания"
 FAVORITES_BUTTON_TEXT = "⭐ Избранное"
 STATS_BUTTON_TEXT = "📊 Статистика"
+TEXT_CARD_BUTTON_TEXT = "✍️ Текстовая карточка"
 
 DRAW_BUTTON = ReplyKeyboardMarkup(
     [
         ["💎 Открыть жемчужину души"],
         [FAVORITES_BUTTON_TEXT, STATS_BUTTON_TEXT],
-        [REMINDER_BUTTON_TEXT],
+        [REMINDER_BUTTON_TEXT, TEXT_CARD_BUTTON_TEXT],
     ],
     resize_keyboard=True,
     is_persistent=True,
@@ -540,9 +541,19 @@ async def hash_missing_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, reply_markup=DRAW_BUTTON)
 
 
+async def text_card_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    context.user_data["awaiting_text_card"] = True
+    await update.message.reply_text("Пришли текст — я оформлю его в карточку.", reply_markup=DRAW_BUTTON)
+
+
 async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
+    if not context.user_data.get("awaiting_text_card"):
+        return
+    context.user_data["awaiting_text_card"] = False
     text = update.message.text
     if not text or not text.strip():
         return
@@ -814,6 +825,7 @@ async def main():
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(FAVORITES_BUTTON_TEXT)}$"), favorites_cmd))
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(STATS_BUTTON_TEXT)}$"), stats_cmd))
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(REMINDER_BUTTON_TEXT)}$"), reminder_menu_cmd))
+    application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(TEXT_CARD_BUTTON_TEXT)}$"), text_card_prompt))
     application.add_handler(MessageHandler(filters.PHOTO & filters.User(ADMIN_ID), admin_add_card_photo))
     application.add_handler(MessageHandler(filters.Document.PDF & filters.User(ADMIN_ID), admin_add_card_pdf))
     application.add_handler(MessageHandler(filters.Document.IMAGE & filters.User(ADMIN_ID), admin_add_card_document))
