@@ -1617,6 +1617,12 @@
       ],
       "kind": "photo",
       "phash": "95b5346a4ada7a92"
+    },
+    {
+      "id": 266,
+      "file_id": "TEST_CARD_A",
+      "kind": "photo",
+      "content_hash": "d3425fc7eb46f220bc0bd00e45e66a3577a66338220be6ba7206f9e3717360ac"
     }
   ]
 }
