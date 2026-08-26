@@ -1617,6 +1617,12 @@
       ],
       "kind": "photo",
       "phash": "95b5346a4ada7a92"
+    },
+    {
+      "id": 266,
+      "file_id": "AgACAgIAAxkDAAIU5WqOw7ivsCeKVXKUMcW4A2uKQerDAALMH2sbi6x5SI6dqKKDrw36AQADAgADdwADPQQ",
+      "kind": "photo",
+      "content_hash": "96fe607906a447a85446ae7277794f15625928ccb89a7ac8ae2dd594b35e03e9"
     }
   ]
 }
