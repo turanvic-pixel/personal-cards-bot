@@ -1672,6 +1672,12 @@
       "file_id": "AgACAgIAAxkDAAIVJGqPsY7vinNaMg7oCOK17beZ30EuAAIwG2sbi6yBSI6wi0D2tuLeAQADAgADdwADPQQ",
       "kind": "photo",
       "content_hash": "05484d079e24185a4cd2f02d9025802df9e8f5b0f56c40593eaa487b53f7e0ba"
+    },
+    {
+      "id": 272,
+      "file_id": "AgACAgIAAxkDAAIVPGqPtY-kcReGkwIiqG7redVX3we6AAI0G2sbi6yBSCyEOUGcc36wAQADAgADdwADPQQ",
+      "kind": "photo",
+      "content_hash": "f459091e9af2939dee164a373685cffc5b2b0d888fdf4bd0a0fc0e798beefc2f"
     }
   ]
 }
