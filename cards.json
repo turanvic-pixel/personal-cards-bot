@@ -1672,6 +1672,12 @@
       "file_id": "AgACAgIAAxkDAAIVJGqPsY7vinNaMg7oCOK17beZ30EuAAIwG2sbi6yBSI6wi0D2tuLeAQADAgADdwADPQQ",
       "kind": "photo",
       "content_hash": "05484d079e24185a4cd2f02d9025802df9e8f5b0f56c40593eaa487b53f7e0ba"
+    },
+    {
+      "id": 272,
+      "file_id": "TEST_CONFIRM_DELETE",
+      "kind": "photo",
+      "content_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
     }
   ]
 }
