@@ -138,6 +138,7 @@ def get_stats(user_id: int):
 def _admin_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
+            [InlineKeyboardButton("🔎 Показать карточку по номеру", callback_data="menu_view")],
             [InlineKeyboardButton("📋 Список номеров карточек", callback_data="menu_count")],
             [InlineKeyboardButton("🗑 Удалить карточку", callback_data="menu_delete")],
             [InlineKeyboardButton("📦 Скачать все карточки (ZIP)", callback_data="menu_export")],
@@ -161,6 +162,9 @@ async def admin_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     action = query.data
     if action == "menu_count":
         await count_cmd(update, context)
+    elif action == "menu_view":
+        context.user_data["awaiting_view_number"] = True
+        await query.message.reply_text("Пришли номер карточки, которую хочешь посмотреть.")
     elif action == "menu_delete":
         context.user_data["awaiting_delete_number"] = True
         await query.message.reply_text("Пришли номер карточки, которую нужно удалить.")
@@ -600,6 +604,14 @@ async def text_card_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
+    if context.user_data.get("awaiting_view_number"):
+        context.user_data["awaiting_view_number"] = False
+        text = (update.message.text or "").strip()
+        if not text.isdigit():
+            await update.message.reply_text("Это не похоже на номер карточки. Попробуй ещё раз через меню.", reply_markup=DRAW_BUTTON)
+            return
+        await _reply_with_card(update.message, int(text))
+        return
     if context.user_data.get("awaiting_delete_number"):
         context.user_data["awaiting_delete_number"] = False
         text = (update.message.text or "").strip()
@@ -658,25 +670,29 @@ async def count_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(f"Всего карточек: {storage.count()}.\nНомера: {preview}{more}")
 
 
+async def _reply_with_card(message, card_id: int):
+    """Отправляет карточку по номеру через переданный message (умеет reply_photo/reply_document)."""
+    card = next((c for c in storage.cards if c["id"] == card_id), None)
+    if card is None:
+        await message.reply_text(f"Карточка #{card_id} не найдена.", reply_markup=DRAW_BUTTON)
+        return
+    caption = f"Карточка #{card_id} ({len(card_file_ids(card))} стр.)."
+    file_ids = card_file_ids(card)
+    for i, fid in enumerate(file_ids):
+        is_last = i == len(file_ids) - 1
+        if card.get("kind") == "document":
+            await message.reply_document(document=fid, caption=caption if is_last else None, reply_markup=DRAW_BUTTON if is_last else None)
+        else:
+            await message.reply_photo(photo=fid, caption=caption if is_last else None, reply_markup=DRAW_BUTTON if is_last else None)
+
+
 async def card_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     if not context.args or not context.args[0].isdigit():
         await update.message.reply_text("Формат: /card <номер карточки>, например /card 3")
         return
-    card_id = int(context.args[0])
-    card = next((c for c in storage.cards if c["id"] == card_id), None)
-    if card is None:
-        await update.message.reply_text(f"Карточка #{card_id} не найдена.")
-        return
-    caption = f"Карточка #{card_id} ({len(card_file_ids(card))} стр.). Чтобы удалить: /delete {card_id}"
-    file_ids = card_file_ids(card)
-    for i, fid in enumerate(file_ids):
-        is_last = i == len(file_ids) - 1
-        if card.get("kind") == "document":
-            await update.message.reply_document(document=fid, caption=caption if is_last else None)
-        else:
-            await update.message.reply_photo(photo=fid, caption=caption if is_last else None)
+    await _reply_with_card(update.message, int(context.args[0]))
 
 
 async def delete_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
