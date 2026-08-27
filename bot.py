@@ -139,9 +139,10 @@ def _admin_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("🔎 Показать карточку по номеру", callback_data="menu_view")],
+            [InlineKeyboardButton("✏️ Редактировать карточку", callback_data="menu_edit")],
             [InlineKeyboardButton("📋 Список номеров карточек", callback_data="menu_count")],
             [InlineKeyboardButton("🗑 Удалить карточку", callback_data="menu_delete")],
-            [InlineKeyboardButton("📦 Скачать все карточки (ZIP)", callback_data="menu_export")],
+            [InlineKeyboardButton("📦 Скачать карточки", callback_data="menu_export")],
             [InlineKeyboardButton("🔁 Досчитать хэши (проверка дублей)", callback_data="menu_hashmissing")],
         ]
     )
@@ -168,8 +169,14 @@ async def admin_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif action == "menu_delete":
         context.user_data["awaiting_delete_number"] = True
         await query.message.reply_text("Пришли номер карточки, которую нужно удалить.")
+    elif action == "menu_edit":
+        context.user_data["awaiting_edit_number"] = True
+        await query.message.reply_text("Пришли номер карточки, которую нужно отредактировать.")
     elif action == "menu_export":
-        await export_cmd(update, context)
+        context.user_data["awaiting_export_selection"] = True
+        await query.message.reply_text(
+            "Какие карточки скачать? Пришли номера через запятую (например 5,7,12-15) или напиши «все»."
+        )
     elif action == "menu_hashmissing":
         await hash_missing_cmd(update, context)
 
@@ -392,6 +399,12 @@ async def admin_add_card_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         raw = await with_retries(tg_file.download_as_bytearray)
         phash = compute_phash(bytes(raw))
         content_hash = compute_content_hash(bytes(raw))
+        editing_id = context.user_data.pop("editing_card_id", None)
+        if editing_id:
+            ok = storage.update_card(editing_id, file_id=photo.file_id, kind="photo", phash=phash, content_hash=content_hash)
+            msg = f"Карточка #{editing_id} обновлена." if ok else f"Не нашла карточку #{editing_id} — возможно, её удалили."
+            await update.message.reply_text(msg, reply_markup=DRAW_BUTTON)
+            return
         dup = storage.find_duplicate(content_hash=content_hash)
         if dup:
             await update.message.reply_text(
@@ -426,12 +439,14 @@ async def admin_add_card_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         phash = compute_phash(pages[0])
         content_hash = compute_content_hash(bytes(raw))
-        dup = storage.find_duplicate(content_hash=content_hash)
-        if dup:
-            await update.message.reply_text(
-                f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
-            )
-            return
+        editing_id = context.user_data.pop("editing_card_id", None)
+        if not editing_id:
+            dup = storage.find_duplicate(content_hash=content_hash)
+            if dup:
+                await update.message.reply_text(
+                    f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
+                )
+                return
         file_ids = []
         for page_bytes in pages:
             try:
@@ -442,6 +457,14 @@ async def admin_add_card_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 lambda **kw: context.bot.send_photo(chat_id=ADMIN_ID, **kw), optimized
             )
             file_ids.append(sent.photo[-1].file_id)
+        if editing_id:
+            if len(file_ids) == 1:
+                ok = storage.update_card(editing_id, file_id=file_ids[0], kind="photo", phash=phash, content_hash=content_hash)
+            else:
+                ok = storage.update_card(editing_id, file_ids=file_ids, kind="photo", phash=phash, content_hash=content_hash)
+            msg = f"Карточка #{editing_id} обновлена ({len(file_ids)} стр.)." if ok else f"Не нашла карточку #{editing_id} — возможно, её удалили."
+            await update.message.reply_text(msg, reply_markup=DRAW_BUTTON)
+            return
         if len(file_ids) == 1:
             new_id = storage.add_card(file_ids[0], kind="photo", phash=phash, content_hash=content_hash)
         else:
@@ -466,12 +489,14 @@ async def admin_add_card_document(update: Update, context: ContextTypes.DEFAULT_
         raw = await with_retries(tg_file.download_as_bytearray)
         phash = compute_phash(bytes(raw))
         content_hash = compute_content_hash(bytes(raw))
-        dup = storage.find_duplicate(content_hash=content_hash)
-        if dup:
-            await update.message.reply_text(
-                f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
-            )
-            return
+        editing_id = context.user_data.get("editing_card_id")
+        if not editing_id:
+            dup = storage.find_duplicate(content_hash=content_hash)
+            if dup:
+                await update.message.reply_text(
+                    f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
+                )
+                return
         try:
             optimized = optimize_image_bytes(bytes(raw))
         except Exception as e:
@@ -480,6 +505,12 @@ async def admin_add_card_document(update: Update, context: ContextTypes.DEFAULT_
             return
         sent = await send_photo_with_retry(update.message.reply_photo, optimized)
         photo_file_id = sent.photo[-1].file_id
+        if editing_id:
+            context.user_data.pop("editing_card_id", None)
+            ok = storage.update_card(editing_id, file_id=photo_file_id, kind="photo", phash=phash, content_hash=content_hash)
+            msg = f"Карточка #{editing_id} обновлена." if ok else f"Не нашла карточку #{editing_id} — возможно, её удалили."
+            await update.message.reply_text(msg, reply_markup=DRAW_BUTTON)
+            return
         new_id = storage.add_card(photo_file_id, kind="photo", phash=phash, content_hash=content_hash)
         await update.message.reply_text(
             f"Добавлено (оптимизировано)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
@@ -652,6 +683,13 @@ async def delete_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
 async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
+    if context.user_data.get("awaiting_export_selection"):
+        context.user_data["awaiting_export_selection"] = False
+        text = update.message.text or ""
+        selected_ids = parse_card_selection(text, storage.list_ids())
+        cards_to_export = [c for c in storage.cards if c["id"] in set(selected_ids)]
+        await _export_cards(update.message, context, cards_to_export)
+        return
     if context.user_data.get("awaiting_view_number"):
         context.user_data["awaiting_view_number"] = False
         text = (update.message.text or "").strip()
@@ -667,6 +705,36 @@ async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("Это не похоже на номер карточки. Попробуй ещё раз через меню.", reply_markup=DRAW_BUTTON)
             return
         await _prompt_delete_confirmation(update.message, int(text))
+        return
+    if context.user_data.get("awaiting_edit_number"):
+        context.user_data["awaiting_edit_number"] = False
+        text = (update.message.text or "").strip()
+        if not text.isdigit() or not any(c["id"] == int(text) for c in storage.cards):
+            await update.message.reply_text("Карточка с таким номером не найдена. Попробуй ещё раз через меню.", reply_markup=DRAW_BUTTON)
+            return
+        card_id = int(text)
+        context.user_data["editing_card_id"] = card_id
+        await update.message.reply_text(
+            f"Пришли новое содержимое (фото, файл или текст) для карточки #{card_id}.", reply_markup=DRAW_BUTTON
+        )
+        return
+    if context.user_data.get("editing_card_id"):
+        card_id = context.user_data.pop("editing_card_id")
+        text = update.message.text
+        if not text or not text.strip():
+            return
+        try:
+            content_hash = compute_content_hash(text.strip().encode("utf-8"))
+            img_bytes = render_text_card(text)
+            sent = await send_photo_with_retry(update.message.reply_photo, img_bytes)
+            ok = storage.update_card(card_id, file_id=sent.photo[-1].file_id, kind="photo", content_hash=content_hash)
+            if ok:
+                await update.message.reply_text(f"Карточка #{card_id} обновлена.", reply_markup=DRAW_BUTTON)
+            else:
+                await update.message.reply_text(f"Не нашла карточку #{card_id} — возможно, её удалили.", reply_markup=DRAW_BUTTON)
+        except Exception as e:
+            logger.exception("Ошибка при редактировании карточки текстом")
+            await update.message.reply_text(f"Не удалось обновить карточку: {e}", reply_markup=DRAW_BUTTON)
         return
     if not context.user_data.get("awaiting_text_card"):
         await start(update, context)
@@ -752,13 +820,33 @@ async def whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
 MAX_ZIP_BYTES = 40 * 1024 * 1024  # запас от лимита Telegram в 50 МБ на файл
 
 
-async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+def parse_card_selection(text: str, valid_ids: list) -> list:
+    """Разбирает ввод вида '5,7,12-15' или 'все'/'all' в список существующих номеров карточек."""
+    text = text.strip().lower()
+    valid_set = set(valid_ids)
+    if text in ("все", "всё", "all"):
+        return sorted(valid_set)
+    result = set()
+    for part in text.replace(" ", "").split(","):
+        if not part:
+            continue
+        if "-" in part:
+            a, b = part.split("-", 1)
+            if a.isdigit() and b.isdigit():
+                lo, hi = int(a), int(b)
+                if lo > hi:
+                    lo, hi = hi, lo
+                result.update(range(lo, hi + 1))
+        elif part.isdigit():
+            result.add(int(part))
+    return sorted(i for i in result if i in valid_set)
+
+
+async def _export_cards(message, context: ContextTypes.DEFAULT_TYPE, cards: list):
+    if not cards:
+        await message.reply_text("Не нашла ни одной подходящей карточки.", reply_markup=DRAW_BUTTON)
         return
-    if not storage.cards:
-        await update.effective_message.reply_text("Карточек пока нет.")
-        return
-    await update.effective_message.reply_text(f"Начинаю выгрузку {storage.count()} карточек, это может занять время...")
+    await message.reply_text(f"Начинаю выгрузку {len(cards)} карточек, это может занять время...")
 
     buf = io.BytesIO()
     zf = zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED)
@@ -766,7 +854,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count_in_zip = 0
     failed = []
 
-    for card in storage.cards:
+    for card in cards:
         file_ids = card_file_ids(card)
         for page_num, fid in enumerate(file_ids, start=1):
             try:
@@ -782,7 +870,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if buf.tell() > MAX_ZIP_BYTES:
                 zf.close()
                 buf.seek(0)
-                await update.effective_message.reply_document(document=buf, filename=f"cards_part{part}.zip")
+                await message.reply_document(document=buf, filename=f"cards_part{part}.zip")
                 part += 1
                 buf = io.BytesIO()
                 zf = zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED)
@@ -791,12 +879,18 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     zf.close()
     if count_in_zip > 0:
         buf.seek(0)
-        await update.effective_message.reply_document(document=buf, filename=f"cards_part{part}.zip")
+        await message.reply_document(document=buf, filename=f"cards_part{part}.zip")
 
-    msg = "Готово! Все карточки отправлены архивом(-ами)."
+    msg = "Готово! Карточки отправлены архивом(-ами)."
     if failed:
         msg += f"\nНе удалось скачать: {failed}"
-    await update.effective_message.reply_text(msg)
+    await message.reply_text(msg, reply_markup=DRAW_BUTTON)
+
+
+async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    await _export_cards(update.effective_message, context, list(storage.cards))
 
 
 def schedule_reminder(application: Application, user_id: int, hour: int, minute: int):
