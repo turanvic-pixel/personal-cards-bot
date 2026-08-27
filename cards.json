@@ -1660,6 +1660,12 @@
       "kind": "photo",
       "phash": "bec3c33cc0c0d39d",
       "content_hash": "7912730d2027817e7cf636f1cdca9fa650390d72c357ad97a4decc8bf8cfb483"
+    },
+    {
+      "id": 270,
+      "file_id": "AgACAgIAAxkDAAIVGWqPo69W-lzK3K9Bn8IltiIB-7sXAAInG2sbi6yBSPhOlE9MF4jUAQADAgADdwADPQQ",
+      "kind": "photo",
+      "content_hash": "e5a809d6d82ee007c7a2d55d01c1f2cfcbca0409497031ee44a57dd98aa29d59"
     }
   ]
 }
