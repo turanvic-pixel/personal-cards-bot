@@ -1678,6 +1678,16 @@
       "file_id": "AgACAgIAAxkDAAIVPGqPtY-kcReGkwIiqG7redVX3we6AAI0G2sbi6yBSCyEOUGcc36wAQADAgADdwADPQQ",
       "kind": "photo",
       "content_hash": "f459091e9af2939dee164a373685cffc5b2b0d888fdf4bd0a0fc0e798beefc2f"
+    },
+    {
+      "id": 273,
+      "file_ids": [
+        "ALBUM_PHOTO_1",
+        "ALBUM_PHOTO_2",
+        "ALBUM_PHOTO_3"
+      ],
+      "kind": "photo",
+      "content_hash": "9fe146f8f551653e88721565e58e72fbe6d580441e31b5d9b816de026c6ca05b"
     }
   ]
 }
