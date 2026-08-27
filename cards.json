@@ -1681,9 +1681,9 @@
     },
     {
       "id": 273,
-      "file_id": "ORIGINAL_ID",
+      "file_id": "EDITED_FILE_ID",
       "kind": "photo",
-      "content_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      "content_hash": "2bba3f420d2c76d937697030d0ee1e0b3f4d13161b9178a23cdd40b6ef63d2de"
     }
   ]
 }
