@@ -1685,6 +1685,13 @@
       "kind": "photo",
       "phash": "eea491da94276a99",
       "content_hash": "9175a124d4277d553fe800fc10bf42a7f1d387958a7593f2c9bb810c5c043438"
+    },
+    {
+      "id": 274,
+      "file_id": "AgACAgIAAxkBAAIVV2qQXkKMQIzlSEZgij5ZHz8Itb3YAAITH2sbrQGASN-77r9E90L_AQADAgADeQADPQQ",
+      "kind": "photo",
+      "phash": "d0063fc387bc710f",
+      "content_hash": "2380e73a98ac4224762edd7cc5927545c7f1a349afd5c0d47e93634f5f867dac"
     }
   ]
 }
