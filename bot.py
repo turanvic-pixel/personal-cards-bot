@@ -390,11 +390,80 @@ def compute_phash(raw_bytes: bytes) -> str | None:
         return None
 
 
+# Буфер альбомов: несколько фото/файлов, присланных одним альбомом (media_group_id),
+# собираются в одну карточку — как страницы PDF, показываются потом одна за другой.
+_media_group_buffers: dict = {}
+
+
+async def _flush_media_group(context: ContextTypes.DEFAULT_TYPE):
+    group_id = context.job.data["group_id"]
+    buf = _media_group_buffers.pop(group_id, None)
+    if not buf or not buf["file_ids"]:
+        return
+    chat_id = buf["chat_id"]
+    file_ids = buf["file_ids"]
+    kind = buf["kind"]
+    editing_id = buf.get("editing_card_id")
+    phash = compute_phash(buf["first_raw"]) if buf.get("first_raw") else None
+    content_hash = compute_content_hash(buf["first_raw"]) if buf.get("first_raw") else None
+
+    if editing_id:
+        if len(file_ids) == 1:
+            ok = storage.update_card(editing_id, file_id=file_ids[0], kind=kind, phash=phash, content_hash=content_hash)
+        else:
+            ok = storage.update_card(editing_id, file_ids=file_ids, kind=kind, phash=phash, content_hash=content_hash)
+        msg = f"Карточка #{editing_id} обновлена ({len(file_ids)} фото)." if ok else f"Не нашла карточку #{editing_id} — возможно, её удалили."
+        await context.bot.send_message(chat_id=chat_id, text=msg, reply_markup=DRAW_BUTTON)
+        return
+
+    dup = storage.find_duplicate(content_hash=content_hash)
+    if dup:
+        await context.bot.send_message(
+            chat_id=chat_id, text=f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
+        )
+        return
+
+    if len(file_ids) == 1:
+        new_id = storage.add_card(file_ids[0], kind=kind, phash=phash, content_hash=content_hash)
+    else:
+        new_id = storage.add_multi_card(file_ids, kind=kind, phash=phash, content_hash=content_hash)
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"Добавлено ({len(file_ids)} фото)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
+        reply_markup=DRAW_BUTTON,
+    )
+
+
+def _schedule_media_group_flush(context: ContextTypes.DEFAULT_TYPE, group_id: str):
+    for job in context.application.job_queue.get_jobs_by_name(f"mg_{group_id}"):
+        job.schedule_removal()
+    context.application.job_queue.run_once(
+        _flush_media_group, when=1.5, data={"group_id": group_id}, name=f"mg_{group_id}"
+    )
+
+
 async def admin_add_card_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     try:
         photo = update.message.photo[-1]
+        group_id = update.message.media_group_id
+        if group_id:
+            is_new = group_id not in _media_group_buffers
+            buf = _media_group_buffers.setdefault(
+                group_id, {"file_ids": [], "kind": "photo", "chat_id": update.effective_chat.id}
+            )
+            if is_new:
+                buf["editing_card_id"] = context.user_data.pop("editing_card_id", None)
+                try:
+                    tg_file = await with_retries(context.bot.get_file, photo.file_id)
+                    buf["first_raw"] = bytes(await with_retries(tg_file.download_as_bytearray))
+                except Exception:
+                    logger.exception("Не удалось скачать первое фото альбома")
+            buf["file_ids"].append(photo.file_id)
+            _schedule_media_group_flush(context, group_id)
+            return
+
         tg_file = await with_retries(context.bot.get_file, photo.file_id)
         raw = await with_retries(tg_file.download_as_bytearray)
         phash = compute_phash(bytes(raw))
@@ -487,16 +556,8 @@ async def admin_add_card_document(update: Update, context: ContextTypes.DEFAULT_
     try:
         tg_file = await with_retries(context.bot.get_file, doc.file_id)
         raw = await with_retries(tg_file.download_as_bytearray)
-        phash = compute_phash(bytes(raw))
-        content_hash = compute_content_hash(bytes(raw))
-        editing_id = context.user_data.get("editing_card_id")
-        if not editing_id:
-            dup = storage.find_duplicate(content_hash=content_hash)
-            if dup:
-                await update.message.reply_text(
-                    f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
-                )
-                return
+        group_id = update.message.media_group_id
+
         try:
             optimized = optimize_image_bytes(bytes(raw))
         except Exception as e:
@@ -505,11 +566,33 @@ async def admin_add_card_document(update: Update, context: ContextTypes.DEFAULT_
             return
         sent = await send_photo_with_retry(update.message.reply_photo, optimized)
         photo_file_id = sent.photo[-1].file_id
+
+        if group_id:
+            is_new = group_id not in _media_group_buffers
+            buf = _media_group_buffers.setdefault(
+                group_id, {"file_ids": [], "kind": "photo", "chat_id": update.effective_chat.id}
+            )
+            if is_new:
+                buf["editing_card_id"] = context.user_data.pop("editing_card_id", None)
+                buf["first_raw"] = bytes(raw)
+            buf["file_ids"].append(photo_file_id)
+            _schedule_media_group_flush(context, group_id)
+            return
+
+        phash = compute_phash(bytes(raw))
+        content_hash = compute_content_hash(bytes(raw))
+        editing_id = context.user_data.get("editing_card_id")
         if editing_id:
             context.user_data.pop("editing_card_id", None)
             ok = storage.update_card(editing_id, file_id=photo_file_id, kind="photo", phash=phash, content_hash=content_hash)
             msg = f"Карточка #{editing_id} обновлена." if ok else f"Не нашла карточку #{editing_id} — возможно, её удалили."
             await update.message.reply_text(msg, reply_markup=DRAW_BUTTON)
+            return
+        dup = storage.find_duplicate(content_hash=content_hash)
+        if dup:
+            await update.message.reply_text(
+                f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
+            )
             return
         new_id = storage.add_card(photo_file_id, kind="photo", phash=phash, content_hash=content_hash)
         await update.message.reply_text(
