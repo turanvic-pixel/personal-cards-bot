@@ -271,11 +271,29 @@ def render_pdf_all_pages(pdf_bytes: bytes) -> list:
 import hashlib
 
 
-import textwrap
-
-
 TEXT_CARD_SIZE = (1200, 1600)
 FONT_PATH = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
+
+
+def _wrap_by_pixel_width(draw, text: str, font, max_width: int) -> list:
+    """Переносит строки по фактической ширине в пикселях, а не по числу символов —
+    иначе строки обрываются рано и справа остаётся пустое место."""
+    lines = []
+    for paragraph in text.split("\n"):
+        if not paragraph.strip():
+            lines.append("")
+            continue
+        words = paragraph.split(" ")
+        current = ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if draw.textlength(candidate, font=font) <= max_width or not current:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        lines.append(current)
+    return lines
 
 
 def render_text_card(text: str) -> bytes:
@@ -284,20 +302,14 @@ def render_text_card(text: str) -> bytes:
     bg_color = (240, 233, 220)
     text_color = (40, 34, 28)
     margin = 90
+    max_text_width = width - 2 * margin
 
     img = Image.new("RGB", (width, height), bg_color)
     draw = ImageDraw.Draw(img)
 
     for font_size in range(64, 17, -2):
         font = ImageFont.truetype(FONT_PATH, font_size)
-        avg_char_w = font.getbbox("Ж")[2] or (font_size * 0.6)
-        wrap_width = max(10, int((width - 2 * margin) / avg_char_w))
-        lines = []
-        for paragraph in text.split("\n"):
-            if not paragraph.strip():
-                lines.append("")
-                continue
-            lines.extend(textwrap.wrap(paragraph, width=wrap_width) or [""])
+        lines = _wrap_by_pixel_width(draw, text, font, max_text_width)
         line_height = int(font_size * 1.35)
         total_height = line_height * len(lines)
         if total_height <= height - 2 * margin:
