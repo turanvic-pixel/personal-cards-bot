@@ -98,6 +98,47 @@ class CardStorage:
                     continue
                 raise
 
+    def update_card(
+        self,
+        card_id: int,
+        file_id: str | None = None,
+        file_ids: list | None = None,
+        kind: str | None = None,
+        phash: str | None = None,
+        content_hash: str | None = None,
+        max_attempts: int = 5,
+    ) -> bool:
+        """Заменяет содержимое существующей карточки (номер/позиция в колоде сохраняются)."""
+        for attempt in range(max_attempts):
+            idx = next((i for i, c in enumerate(self.cards) if c["id"] == card_id), None)
+            if idx is None:
+                return False
+            original = dict(self.cards[idx])
+            card = self.cards[idx]
+            if file_id is not None:
+                card.pop("file_ids", None)
+                card["file_id"] = file_id
+            if file_ids is not None:
+                card.pop("file_id", None)
+                card["file_ids"] = list(file_ids)
+            if kind is not None:
+                card["kind"] = kind
+            if phash is not None:
+                card["phash"] = phash
+            if content_hash is not None:
+                card["content_hash"] = content_hash
+            try:
+                self._save(f"edit card #{card_id}")
+                return True
+            except GithubException as e:
+                self.cards[idx] = original
+                if getattr(e, "status", None) == 409 and attempt < max_attempts - 1:
+                    logger.warning("Конфликт версии cards.json (update_card), перечитываю и повторяю: попытка %s", attempt + 1)
+                    self._load()
+                    continue
+                raise
+        return False
+
     def find_duplicate(self, phash: str | None = None, content_hash: str | None = None, max_distance: int = 0):
         """Дубликатом считается только карточка с ТЕМ ЖЕ точным содержимым файла (content_hash).
         Перцептивный хэш (phash) больше не используется для решения — визуально похожие,
