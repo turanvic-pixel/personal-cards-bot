@@ -338,7 +338,8 @@ def _wrap_by_pixel_width(draw, text: str, font, max_width: int) -> list:
 
 
 def render_text_card(text: str) -> bytes:
-    """Оформляет обычный текст в карточку: фон + красиво уложенный текст с автоподбором размера."""
+    """Оформляет обычный текст в карточку: фон + текст по центру, размер шрифта
+    подбирается под длину текста — короткий текст крупно заполняет карточку целиком."""
     width, height = TEXT_CARD_SIZE
     bg_color = (240, 233, 220)
     text_color = (40, 34, 28)
@@ -348,7 +349,7 @@ def render_text_card(text: str) -> bytes:
     img = Image.new("RGB", (width, height), bg_color)
     draw = ImageDraw.Draw(img)
 
-    for font_size in range(64, 17, -2):
+    for font_size in range(220, 17, -2):
         font = ImageFont.truetype(FONT_PATH, font_size)
         lines = _wrap_by_pixel_width(draw, text, font, max_text_width)
         line_height = int(font_size * 1.35)
@@ -358,7 +359,9 @@ def render_text_card(text: str) -> bytes:
 
     y = (height - total_height) // 2
     for line in lines:
-        draw.text((margin, y), line, font=font, fill=text_color)
+        line_width = draw.textlength(line, font=font)
+        x = (width - line_width) / 2
+        draw.text((x, y), line, font=font, fill=text_color)
         y += line_height
 
     out = io.BytesIO()
