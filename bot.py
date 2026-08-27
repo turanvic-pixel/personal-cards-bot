@@ -354,7 +354,8 @@ def render_text_card(text: str) -> bytes:
         lines = _wrap_by_pixel_width(draw, text, font, max_text_width)
         line_height = int(font_size * 1.35)
         total_height = line_height * len(lines)
-        if total_height <= height - 2 * margin:
+        max_line_width = max((draw.textlength(line, font=font) for line in lines), default=0)
+        if total_height <= height - 2 * margin and max_line_width <= max_text_width:
             break
 
     y = (height - total_height) // 2
@@ -604,6 +605,50 @@ async def text_card_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Пришли текст — я оформлю его в карточку.", reply_markup=DRAW_BUTTON)
 
 
+def _delete_confirm_keyboard(card_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[
+            InlineKeyboardButton("✅ Да, удалить", callback_data=f"confirmdel:{card_id}"),
+            InlineKeyboardButton("❌ Отмена", callback_data="canceldel"),
+        ]]
+    )
+
+
+async def _prompt_delete_confirmation(message, card_id: int):
+    card = next((c for c in storage.cards if c["id"] == card_id), None)
+    if card is None:
+        await message.reply_text(f"Карточка #{card_id} не найдена.", reply_markup=DRAW_BUTTON)
+        return
+    caption = f"Удалить карточку #{card_id}?"
+    kb = _delete_confirm_keyboard(card_id)
+    file_ids = card_file_ids(card)
+    for i, fid in enumerate(file_ids):
+        is_last = i == len(file_ids) - 1
+        if card.get("kind") == "document":
+            await message.reply_document(document=fid, caption=caption if is_last else None, reply_markup=kb if is_last else None)
+        else:
+            await message.reply_photo(photo=fid, caption=caption if is_last else None, reply_markup=kb if is_last else None)
+
+
+async def delete_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if update.effective_user.id != ADMIN_ID:
+        await query.answer()
+        return
+    await query.answer()
+    if query.data == "canceldel":
+        await query.message.reply_text("Отменено, карточка на месте.", reply_markup=DRAW_BUTTON)
+        return
+    card_id = int(query.data.split(":")[1])
+    ok = storage.delete_card(card_id)
+    if ok:
+        await query.message.reply_text(
+            f"Карточка #{card_id} удалена. Всего карточек: {storage.count()}.", reply_markup=DRAW_BUTTON
+        )
+    else:
+        await query.message.reply_text(f"Карточка #{card_id} не найдена.", reply_markup=DRAW_BUTTON)
+
+
 async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
@@ -621,14 +666,7 @@ async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not text.isdigit():
             await update.message.reply_text("Это не похоже на номер карточки. Попробуй ещё раз через меню.", reply_markup=DRAW_BUTTON)
             return
-        card_id = int(text)
-        ok = storage.delete_card(card_id)
-        if ok:
-            await update.message.reply_text(
-                f"Карточка #{card_id} удалена. Всего карточек: {storage.count()}.", reply_markup=DRAW_BUTTON
-            )
-        else:
-            await update.message.reply_text(f"Карточка #{card_id} не найдена.", reply_markup=DRAW_BUTTON)
+        await _prompt_delete_confirmation(update.message, int(text))
         return
     if not context.user_data.get("awaiting_text_card"):
         await start(update, context)
@@ -704,12 +742,7 @@ async def delete_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args or not context.args[0].isdigit():
         await update.message.reply_text("Формат: /delete <номер карточки>, например /delete 3")
         return
-    card_id = int(context.args[0])
-    ok = storage.delete_card(card_id)
-    if ok:
-        await update.message.reply_text(f"Карточка #{card_id} удалена. Всего карточек: {storage.count()}.")
-    else:
-        await update.message.reply_text(f"Карточка #{card_id} не найдена.")
+    await _prompt_delete_confirmation(update.message, int(context.args[0]))
 
 
 async def whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -906,6 +939,7 @@ async def main():
     application.add_handler(CallbackQueryHandler(unfavorite_callback, pattern="^unfav:"))
     application.add_handler(CallbackQueryHandler(reminder_callback, pattern="^remind_"))
     application.add_handler(CallbackQueryHandler(admin_menu_callback, pattern="^menu_"))
+    application.add_handler(CallbackQueryHandler(delete_confirm_callback, pattern="^(confirmdel:|canceldel$)"))
     application.add_handler(MessageHandler(filters.Regex("^💎 Открыть жемчужину души$"), draw_card))
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(FAVORITES_BUTTON_TEXT)}$"), favorites_cmd))
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(STATS_BUTTON_TEXT)}$"), stats_cmd))
