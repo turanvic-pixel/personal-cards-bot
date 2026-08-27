@@ -1681,9 +1681,12 @@
     },
     {
       "id": 273,
-      "file_id": "OLD_SINGLE_PHOTO",
       "kind": "photo",
-      "content_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      "content_hash": "0aae5f6f93a12348a033e69694d6e34f5770db10a31ab18c2b6d26296ba4dcc8",
+      "file_ids": [
+        "NEW_1",
+        "NEW_2"
+      ]
     }
   ]
 }
