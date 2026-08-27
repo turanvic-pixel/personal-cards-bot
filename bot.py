@@ -94,12 +94,14 @@ REMINDER_BUTTON_TEXT = "⏰ Напоминания"
 FAVORITES_BUTTON_TEXT = "⭐ Избранное"
 STATS_BUTTON_TEXT = "📊 Статистика"
 TEXT_CARD_BUTTON_TEXT = "✍️ Текстовая карточка"
+ADMIN_MENU_BUTTON_TEXT = "🛠 Управление"
 
 DRAW_BUTTON = ReplyKeyboardMarkup(
     [
         ["💎 Открыть жемчужину души"],
         [FAVORITES_BUTTON_TEXT, STATS_BUTTON_TEXT],
         [REMINDER_BUTTON_TEXT, TEXT_CARD_BUTTON_TEXT],
+        [ADMIN_MENU_BUTTON_TEXT],
     ],
     resize_keyboard=True,
     is_persistent=True,
@@ -131,6 +133,41 @@ def get_stats(user_id: int):
         and datetime.date.fromisoformat(d).month == today.month
     )
     return total, day, week, month
+
+
+def _admin_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📋 Список номеров карточек", callback_data="menu_count")],
+            [InlineKeyboardButton("🗑 Удалить карточку", callback_data="menu_delete")],
+            [InlineKeyboardButton("📦 Скачать все карточки (ZIP)", callback_data="menu_export")],
+            [InlineKeyboardButton("🔁 Досчитать хэши (проверка дублей)", callback_data="menu_hashmissing")],
+        ]
+    )
+
+
+async def admin_menu_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    await update.message.reply_text("Что нужно сделать?", reply_markup=_admin_menu_keyboard())
+
+
+async def admin_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if update.effective_user.id != ADMIN_ID:
+        await query.answer()
+        return
+    await query.answer()
+    action = query.data
+    if action == "menu_count":
+        await count_cmd(update, context)
+    elif action == "menu_delete":
+        context.user_data["awaiting_delete_number"] = True
+        await query.message.reply_text("Пришли номер карточки, которую нужно удалить.")
+    elif action == "menu_export":
+        await export_cmd(update, context)
+    elif action == "menu_hashmissing":
+        await hash_missing_cmd(update, context)
 
 
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -563,6 +600,21 @@ async def text_card_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
+    if context.user_data.get("awaiting_delete_number"):
+        context.user_data["awaiting_delete_number"] = False
+        text = (update.message.text or "").strip()
+        if not text.isdigit():
+            await update.message.reply_text("Это не похоже на номер карточки. Попробуй ещё раз через меню.", reply_markup=DRAW_BUTTON)
+            return
+        card_id = int(text)
+        ok = storage.delete_card(card_id)
+        if ok:
+            await update.message.reply_text(
+                f"Карточка #{card_id} удалена. Всего карточек: {storage.count()}.", reply_markup=DRAW_BUTTON
+            )
+        else:
+            await update.message.reply_text(f"Карточка #{card_id} не найдена.", reply_markup=DRAW_BUTTON)
+        return
     if not context.user_data.get("awaiting_text_card"):
         await start(update, context)
         return
@@ -603,7 +655,7 @@ async def count_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ids = storage.list_ids()
     preview = ", ".join(str(i) for i in ids[:30])
     more = f" и ещё {len(ids) - 30}" if len(ids) > 30 else ""
-    await update.message.reply_text(f"Всего карточек: {storage.count()}.\nНомера: {preview}{more}")
+    await update.effective_message.reply_text(f"Всего карточек: {storage.count()}.\nНомера: {preview}{more}")
 
 
 async def card_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -652,9 +704,9 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     if not storage.cards:
-        await update.message.reply_text("Карточек пока нет.")
+        await update.effective_message.reply_text("Карточек пока нет.")
         return
-    await update.message.reply_text(f"Начинаю выгрузку {storage.count()} карточек, это может занять время...")
+    await update.effective_message.reply_text(f"Начинаю выгрузку {storage.count()} карточек, это может занять время...")
 
     buf = io.BytesIO()
     zf = zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED)
@@ -678,7 +730,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if buf.tell() > MAX_ZIP_BYTES:
                 zf.close()
                 buf.seek(0)
-                await update.message.reply_document(document=buf, filename=f"cards_part{part}.zip")
+                await update.effective_message.reply_document(document=buf, filename=f"cards_part{part}.zip")
                 part += 1
                 buf = io.BytesIO()
                 zf = zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED)
@@ -687,12 +739,12 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     zf.close()
     if count_in_zip > 0:
         buf.seek(0)
-        await update.message.reply_document(document=buf, filename=f"cards_part{part}.zip")
+        await update.effective_message.reply_document(document=buf, filename=f"cards_part{part}.zip")
 
     msg = "Готово! Все карточки отправлены архивом(-ами)."
     if failed:
         msg += f"\nНе удалось скачать: {failed}"
-    await update.message.reply_text(msg)
+    await update.effective_message.reply_text(msg)
 
 
 def schedule_reminder(application: Application, user_id: int, hour: int, minute: int):
@@ -834,11 +886,13 @@ async def main():
     application.add_handler(CallbackQueryHandler(favorite_callback, pattern="^fav:"))
     application.add_handler(CallbackQueryHandler(unfavorite_callback, pattern="^unfav:"))
     application.add_handler(CallbackQueryHandler(reminder_callback, pattern="^remind_"))
+    application.add_handler(CallbackQueryHandler(admin_menu_callback, pattern="^menu_"))
     application.add_handler(MessageHandler(filters.Regex("^💎 Открыть жемчужину души$"), draw_card))
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(FAVORITES_BUTTON_TEXT)}$"), favorites_cmd))
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(STATS_BUTTON_TEXT)}$"), stats_cmd))
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(REMINDER_BUTTON_TEXT)}$"), reminder_menu_cmd))
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(TEXT_CARD_BUTTON_TEXT)}$"), text_card_prompt))
+    application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(ADMIN_MENU_BUTTON_TEXT)}$"), admin_menu_prompt))
     application.add_handler(MessageHandler(filters.PHOTO & filters.User(ADMIN_ID), admin_add_card_photo))
     application.add_handler(MessageHandler(filters.Document.PDF & filters.User(ADMIN_ID), admin_add_card_pdf))
     application.add_handler(MessageHandler(filters.Document.IMAGE & filters.User(ADMIN_ID), admin_add_card_document))
