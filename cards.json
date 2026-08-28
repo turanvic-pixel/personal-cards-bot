@@ -1727,15 +1727,6 @@
       "kind": "photo",
       "phash": "abb4e06335e82d4b",
       "content_hash": "ea3c10f54a197936285e917c82b85c3125e0325d0fc94d06ea6370be2e90d1df"
-    },
-    {
-      "id": 278,
-      "kind": "photo",
-      "file_ids": [
-        "E1",
-        "E2"
-      ],
-      "content_hash": "4e672e14a6367a1d28f904ffdaeea87affae73a0436d7475349fec358317613e"
     }
   ]
 }
