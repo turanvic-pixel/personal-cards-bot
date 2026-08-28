@@ -1717,15 +1717,6 @@
       "kind": "photo",
       "phash": "929b6d66a4d8d299",
       "content_hash": "fb68adbc629d301c4207c496bbb024910f6605469fbd40a9fb5fc389e5764760"
-    },
-    {
-      "id": 280,
-      "file_ids": [
-        "P_MERGE_B",
-        "P_MERGE_C",
-        "P_MERGE_A"
-      ],
-      "kind": "photo"
     }
   ]
 }
