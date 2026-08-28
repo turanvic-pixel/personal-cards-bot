@@ -522,6 +522,9 @@ async def duplicate_confirm_callback(update: Update, context: ContextTypes.DEFAU
     )
 
 
+_pending_group_choices: dict = {}
+
+
 async def _flush_media_group(context: ContextTypes.DEFAULT_TYPE):
     group_id = context.job.data["group_id"]
     buf = _media_group_buffers.pop(group_id, None)
@@ -543,23 +546,84 @@ async def _flush_media_group(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text=msg, reply_markup=DRAW_BUTTON)
         return
 
-    dup = storage.find_duplicate(content_hash=content_hash)
-    if dup:
-        pending = {"kind": kind, "phash": phash, "content_hash": content_hash}
-        if len(file_ids) == 1:
-            pending["file_id"] = file_ids[0]
-        else:
-            pending["file_ids"] = file_ids
-        await _ask_duplicate_confirmation(context.bot, chat_id, dup, pending)
+    if len(file_ids) == 1:
+        dup = storage.find_duplicate(content_hash=content_hash)
+        if dup:
+            await _ask_duplicate_confirmation(
+                context.bot, chat_id, dup,
+                {"file_id": file_ids[0], "kind": kind, "phash": phash, "content_hash": content_hash},
+            )
+            return
+        new_id = storage.add_card(file_ids[0], kind=kind, phash=phash, content_hash=content_hash)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"Добавлено! Карточка #{new_id}. Всего карточек: {storage.count()}.",
+            reply_markup=DRAW_BUTTON,
+        )
         return
 
-    if len(file_ids) == 1:
-        new_id = storage.add_card(file_ids[0], kind=kind, phash=phash, content_hash=content_hash)
-    else:
-        new_id = storage.add_multi_card(file_ids, kind=kind, phash=phash, content_hash=content_hash)
+    # несколько фото, не редактирование — спрашиваем, как сохранить, а не решаем автоматически
+    _pending_group_choices[group_id] = buf
+    kb = InlineKeyboardMarkup(
+        [[
+            InlineKeyboardButton(f"📑 Отдельными ({len(file_ids)})", callback_data=f"splitgroup:{group_id}"),
+            InlineKeyboardButton(f"📖 Одной карточкой ({len(file_ids)} стр.)", callback_data=f"combinegroup:{group_id}"),
+        ]]
+    )
     await context.bot.send_message(
-        chat_id=chat_id,
-        text=f"Добавлено ({len(file_ids)} фото)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
+        chat_id=chat_id, text=f"Прислано {len(file_ids)} фото. Как сохранить?", reply_markup=kb
+    )
+
+
+async def group_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if update.effective_user.id != ADMIN_ID:
+        await query.answer()
+        return
+    await query.answer()
+    action, key = query.data.split(":", 1)
+    buf = _pending_group_choices.pop(key, None)
+    if not buf:
+        await query.message.reply_text("Эти карточки уже обработаны или устарели.", reply_markup=DRAW_BUTTON)
+        return
+    file_ids = buf["file_ids"]
+    kind = buf["kind"]
+    phash = compute_phash(buf["first_raw"]) if buf.get("first_raw") else None
+    content_hash = compute_content_hash(buf["first_raw"]) if buf.get("first_raw") else None
+
+    if action == "splitgroup":
+        first_fid = file_ids[0]
+        rest = file_ids[1:]
+        added = 0
+        for fid in rest:
+            storage.add_card(fid, kind=kind)
+            added += 1
+        dup = storage.find_duplicate(content_hash=content_hash) if content_hash else None
+        if dup:
+            note = f" Остальные {added} добавлены сразу." if added else ""
+            await query.message.reply_text(f"Первая из присланных похожа на существующую карточку.{note}", reply_markup=DRAW_BUTTON)
+            await _ask_duplicate_confirmation(
+                context.bot, query.message.chat.id, dup,
+                {"file_id": first_fid, "kind": kind, "phash": phash, "content_hash": content_hash},
+            )
+            return
+        storage.add_card(first_fid, kind=kind, phash=phash, content_hash=content_hash)
+        added += 1
+        msg = f"Добавлено отдельными карточками: {added}. Всего карточек: {storage.count()}."
+        await query.message.reply_text(msg, reply_markup=DRAW_BUTTON)
+        return
+
+    # combinegroup
+    dup = storage.find_duplicate(content_hash=content_hash) if content_hash else None
+    if dup:
+        await _ask_duplicate_confirmation(
+            context.bot, query.message.chat.id, dup,
+            {"file_ids": file_ids, "kind": kind, "phash": phash, "content_hash": content_hash},
+        )
+        return
+    new_id = storage.add_multi_card(file_ids, kind=kind, phash=phash, content_hash=content_hash)
+    await query.message.reply_text(
+        f"Добавлено одной карточкой ({len(file_ids)} стр.)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
         reply_markup=DRAW_BUTTON,
     )
 
@@ -1305,6 +1369,7 @@ async def main():
     application.add_handler(CallbackQueryHandler(admin_menu_callback, pattern="^menu_"))
     application.add_handler(CallbackQueryHandler(delete_confirm_callback, pattern="^(confirmdel:|canceldel$)"))
     application.add_handler(CallbackQueryHandler(duplicate_confirm_callback, pattern="^(forceadd:|skipadd:)"))
+    application.add_handler(CallbackQueryHandler(group_choice_callback, pattern="^(splitgroup:|combinegroup:)"))
     application.add_handler(MessageHandler(filters.Regex("^💎 Открыть жемчужину души$"), draw_card))
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(MODE_BUTTON_TEXT)}$"), mode_prompt))
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(FAVORITES_BUTTON_TEXT)}$"), favorites_cmd))
