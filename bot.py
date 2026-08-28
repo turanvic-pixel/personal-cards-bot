@@ -143,6 +143,7 @@ def _admin_menu_keyboard() -> InlineKeyboardMarkup:
         [
             [InlineKeyboardButton("🔎 Показать карточку по номеру", callback_data="menu_view")],
             [InlineKeyboardButton("✏️ Редактировать карточку", callback_data="menu_edit")],
+            [InlineKeyboardButton("🔗 Объединить карточки", callback_data="menu_merge")],
             [InlineKeyboardButton("📋 Список номеров карточек", callback_data="menu_count")],
             [InlineKeyboardButton("🗑 Удалить карточку", callback_data="menu_delete")],
             [InlineKeyboardButton("📦 Скачать карточки", callback_data="menu_export")],
@@ -175,6 +176,11 @@ async def admin_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif action == "menu_edit":
         context.user_data["awaiting_edit_number"] = True
         await query.message.reply_text("Пришли номер карточки, которую нужно отредактировать.")
+    elif action == "menu_merge":
+        context.user_data["awaiting_merge_numbers"] = True
+        await query.message.reply_text(
+            "Пришли номера карточек в том порядке, в котором их нужно объединить, через запятую (например: 5,3,11)."
+        )
     elif action == "menu_export":
         context.user_data["awaiting_export_selection"] = True
         await query.message.reply_text(
@@ -870,6 +876,43 @@ async def delete_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
 
 async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
+        return
+    if context.user_data.get("awaiting_merge_numbers"):
+        context.user_data["awaiting_merge_numbers"] = False
+        text = (update.message.text or "").strip()
+        parts = [p.strip() for p in text.split(",") if p.strip()]
+        if len(parts) < 2 or not all(p.isdigit() for p in parts):
+            await update.message.reply_text(
+                "Нужно минимум два номера через запятую, например: 5,3,11.", reply_markup=DRAW_BUTTON
+            )
+            return
+        ids_in_order = [int(p) for p in parts]
+        if len(set(ids_in_order)) != len(ids_in_order):
+            await update.message.reply_text("В списке есть повторяющиеся номера — пришли ещё раз без повторов.", reply_markup=DRAW_BUTTON)
+            return
+        cards_in_order = []
+        missing = []
+        for cid in ids_in_order:
+            card = next((c for c in storage.cards if c["id"] == cid), None)
+            if card is None:
+                missing.append(cid)
+            else:
+                cards_in_order.append(card)
+        if missing:
+            await update.message.reply_text(f"Не нашла карточки: {missing}. Ничего не объединяю.", reply_markup=DRAW_BUTTON)
+            return
+        combined_file_ids = []
+        for card in cards_in_order:
+            combined_file_ids.extend(card_file_ids(card))
+        kind = cards_in_order[0].get("kind", "photo")
+        new_id = storage.add_multi_card(combined_file_ids, kind=kind)
+        for cid in ids_in_order:
+            storage.delete_card(cid)
+        await update.message.reply_text(
+            f"Объединено! Новая карточка #{new_id} ({len(combined_file_ids)} стр.) из карточек {ids_in_order}. "
+            f"Всего карточек: {storage.count()}.",
+            reply_markup=DRAW_BUTTON,
+        )
         return
     if context.user_data.get("awaiting_export_selection"):
         context.user_data["awaiting_export_selection"] = False
