@@ -30,6 +30,8 @@ class CardStorage:
         self.cards = []
         self._sha = None
         self._decks = {}
+        self._modes = {}
+        self._seq_positions = {}
         self._load()
 
     def _load(self):
@@ -169,6 +171,31 @@ class CardStorage:
         if card is None:
             # карточку успели удалить между тасовками — тянем следующую
             return self.next_card_for_user(user_id)
+        return card
+
+    def set_mode(self, user_id: int, mode: str):
+        """mode: 'random' или 'sequential'."""
+        self._modes[user_id] = mode
+
+    def get_mode(self, user_id: int) -> str:
+        return self._modes.get(user_id, "random")
+
+    def reset_sequential(self, user_id: int):
+        self._seq_positions[user_id] = 0
+
+    def next_sequential_card(self, user_id: int):
+        """Показывает карточки по порядку номеров; продолжает с того места, где остановились."""
+        if not self.cards:
+            return None
+        sorted_ids = sorted(c["id"] for c in self.cards)
+        pos = self._seq_positions.get(user_id, 0)
+        if pos >= len(sorted_ids):
+            pos = 0
+        card_id = sorted_ids[pos]
+        self._seq_positions[user_id] = pos + 1
+        card = next((c for c in self.cards if c["id"] == card_id), None)
+        if card is None:
+            return self.next_sequential_card(user_id)
         return card
 
     def delete_card(self, card_id: int, max_attempts: int = 5) -> bool:
