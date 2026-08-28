@@ -1717,6 +1717,16 @@
       "kind": "photo",
       "phash": "929b6d66a4d8d299",
       "content_hash": "fb68adbc629d301c4207c496bbb024910f6605469fbd40a9fb5fc389e5764760"
+    },
+    {
+      "id": 277,
+      "file_ids": [
+        "AgACAgIAAxkBAAIVhmqRgvyJtReOL9eyqqsGUdHhnMe-AAKvIGsbrQGQSEz_ZuGck6bOAQADAgADeQADPQQ",
+        "AgACAgIAAxkBAAIVhWqRgvx3QgdixkDgJuG0QWJaV2ZSAAKuIGsbrQGQSA8SgvRjLvl3AQADAgADeQADPQQ"
+      ],
+      "kind": "photo",
+      "phash": "abb4e06335e82d4b",
+      "content_hash": "ea3c10f54a197936285e917c82b85c3125e0325d0fc94d06ea6370be2e90d1df"
     }
   ]
 }
