@@ -366,6 +366,7 @@ import hashlib
 
 TEXT_CARD_SIZE = (1200, 1600)
 FONT_PATH = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
+TEXT_CARD_MIN_FONT_SIZE = 32  # меньше не уменьшаем — плохо читается; вместо этого переносим на новую страницу
 
 
 def _wrap_by_pixel_width(draw, text: str, font, max_width: int) -> list:
@@ -389,37 +390,56 @@ def _wrap_by_pixel_width(draw, text: str, font, max_width: int) -> list:
     return lines
 
 
-def render_text_card(text: str) -> bytes:
-    """Оформляет обычный текст в карточку: фон + текст по центру, размер шрифта
-    подбирается под длину текста — короткий текст крупно заполняет карточку целиком."""
+def _render_text_page(lines: list, font, line_height: int, total_height: int) -> bytes:
     width, height = TEXT_CARD_SIZE
     bg_color = (240, 233, 220)
     text_color = (40, 34, 28)
-    margin = 90
-    max_text_width = width - 2 * margin
-
     img = Image.new("RGB", (width, height), bg_color)
     draw = ImageDraw.Draw(img)
-
-    for font_size in range(220, 17, -2):
-        font = ImageFont.truetype(FONT_PATH, font_size)
-        lines = _wrap_by_pixel_width(draw, text, font, max_text_width)
-        line_height = int(font_size * 1.35)
-        total_height = line_height * len(lines)
-        max_line_width = max((draw.textlength(line, font=font) for line in lines), default=0)
-        if total_height <= height - 2 * margin and max_line_width <= max_text_width:
-            break
-
     y = (height - total_height) // 2
     for line in lines:
         line_width = draw.textlength(line, font=font)
         x = (width - line_width) / 2
         draw.text((x, y), line, font=font, fill=text_color)
         y += line_height
-
     out = io.BytesIO()
     img.save(out, format="JPEG", quality=92)
     return out.getvalue()
+
+
+def render_text_card_pages(text: str) -> list:
+    """Оформляет текст в одну или несколько карточек-страниц: тёплый фон, текст по центру.
+    Короткий текст крупно заполняет одну карточку. Длинный текст, который не помещается даже
+    при минимальном читаемом размере шрифта, автоматически переносится на следующие страницы —
+    как страницы PDF, показываются потом одна за другой."""
+    width, height = TEXT_CARD_SIZE
+    margin = 90
+    max_text_width = width - 2 * margin
+    max_text_height = height - 2 * margin
+
+    tmp_img = Image.new("RGB", (10, 10))
+    draw = ImageDraw.Draw(tmp_img)
+
+    for font_size in range(220, TEXT_CARD_MIN_FONT_SIZE - 1, -2):
+        font = ImageFont.truetype(FONT_PATH, font_size)
+        lines = _wrap_by_pixel_width(draw, text, font, max_text_width)
+        line_height = int(font_size * 1.35)
+        total_height = line_height * len(lines)
+        max_line_width = max((draw.textlength(line, font=font) for line in lines), default=0)
+        if total_height <= max_text_height and max_line_width <= max_text_width:
+            return [_render_text_page(lines, font, line_height, total_height)]
+
+    # даже на минимальном размере весь текст не влезает в одну страницу — разбиваем на несколько
+    font = ImageFont.truetype(FONT_PATH, TEXT_CARD_MIN_FONT_SIZE)
+    all_lines = _wrap_by_pixel_width(draw, text, font, max_text_width)
+    line_height = int(TEXT_CARD_MIN_FONT_SIZE * 1.35)
+    lines_per_page = max(1, max_text_height // line_height)
+    pages = []
+    for i in range(0, len(all_lines), lines_per_page):
+        page_lines = all_lines[i : i + lines_per_page]
+        page_total_height = line_height * len(page_lines)
+        pages.append(_render_text_page(page_lines, font, line_height, page_total_height))
+    return pages
 
 
 def compute_content_hash(raw_bytes: bytes) -> str:
@@ -478,10 +498,15 @@ async def duplicate_confirm_callback(update: Update, context: ContextTypes.DEFAU
         return
 
     if pending.get("is_text"):
-        img_bytes = render_text_card(pending["text"])
-        sent = await context.bot.send_photo(chat_id=pending["chat_id"], photo=io.BytesIO(img_bytes))
-        file_id = sent.photo[-1].file_id
-        new_id = storage.add_card(file_id, kind="photo", content_hash=pending.get("content_hash"))
+        pages = render_text_card_pages(pending["text"])
+        file_ids = []
+        for page_bytes in pages:
+            sent = await context.bot.send_photo(chat_id=pending["chat_id"], photo=io.BytesIO(page_bytes))
+            file_ids.append(sent.photo[-1].file_id)
+        if len(file_ids) == 1:
+            new_id = storage.add_card(file_ids[0], kind="photo", content_hash=pending.get("content_hash"))
+        else:
+            new_id = storage.add_multi_card(file_ids, kind="photo", content_hash=pending.get("content_hash"))
     elif pending.get("file_ids") is not None:
         new_id = storage.add_multi_card(
             pending["file_ids"], kind=pending.get("kind", "photo"),
@@ -956,9 +981,15 @@ async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
         try:
             content_hash = compute_content_hash(text.strip().encode("utf-8"))
-            img_bytes = render_text_card(text)
-            sent = await send_photo_with_retry(update.message.reply_photo, img_bytes)
-            ok = storage.update_card(card_id, file_id=sent.photo[-1].file_id, kind="photo", content_hash=content_hash)
+            pages = render_text_card_pages(text)
+            file_ids = []
+            for page_bytes in pages:
+                sent = await send_photo_with_retry(update.message.reply_photo, page_bytes)
+                file_ids.append(sent.photo[-1].file_id)
+            if len(file_ids) == 1:
+                ok = storage.update_card(card_id, file_id=file_ids[0], kind="photo", content_hash=content_hash)
+            else:
+                ok = storage.update_card(card_id, file_ids=file_ids, kind="photo", content_hash=content_hash)
             if ok:
                 await update.message.reply_text(f"Карточка #{card_id} обновлена.", reply_markup=DRAW_BUTTON)
             else:
@@ -983,12 +1014,18 @@ async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE
                 {"is_text": True, "text": text, "content_hash": content_hash},
             )
             return
-        img_bytes = render_text_card(text)
-        sent = await send_photo_with_retry(update.message.reply_photo, img_bytes)
-        photo_file_id = sent.photo[-1].file_id
-        new_id = storage.add_card(photo_file_id, kind="photo", content_hash=content_hash)
+        pages = render_text_card_pages(text)
+        file_ids = []
+        for page_bytes in pages:
+            sent = await send_photo_with_retry(update.message.reply_photo, page_bytes)
+            file_ids.append(sent.photo[-1].file_id)
+        if len(file_ids) == 1:
+            new_id = storage.add_card(file_ids[0], kind="photo", content_hash=content_hash)
+        else:
+            new_id = storage.add_multi_card(file_ids, kind="photo", content_hash=content_hash)
+        page_note = f" ({len(file_ids)} стр.)" if len(file_ids) > 1 else ""
         await update.message.reply_text(
-            f"Добавлено из текста! Карточка #{new_id}. Всего карточек: {storage.count()}.",
+            f"Добавлено из текста{page_note}! Карточка #{new_id}. Всего карточек: {storage.count()}.",
             reply_markup=DRAW_BUTTON,
         )
     except Exception as e:
