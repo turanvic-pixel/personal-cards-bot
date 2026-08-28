@@ -4,6 +4,7 @@ import io
 import logging
 import os
 import re
+import uuid
 import zipfile
 
 import aiohttp
@@ -393,6 +394,63 @@ def compute_phash(raw_bytes: bytes) -> str | None:
 # Буфер альбомов: несколько фото/файлов, присланных одним альбомом (media_group_id),
 # собираются в одну карточку — как страницы PDF, показываются потом одна за другой.
 _media_group_buffers: dict = {}
+_pending_duplicate_adds: dict = {}
+
+
+async def _ask_duplicate_confirmation(bot, chat_id, existing_card: dict, pending_data: dict):
+    """Показывает найденную похожую карточку и спрашивает — правда дубликат, или добавить всё равно."""
+    key = uuid.uuid4().hex[:12]
+    pending_data["chat_id"] = chat_id
+    _pending_duplicate_adds[key] = pending_data
+    caption = f"Похоже на карточку #{existing_card['id']}. Это дубликат?"
+    kb = InlineKeyboardMarkup(
+        [[
+            InlineKeyboardButton("✅ Да, добавить новую", callback_data=f"forceadd:{key}"),
+            InlineKeyboardButton("❌ Не добавлять", callback_data=f"skipadd:{key}"),
+        ]]
+    )
+    existing_ids = card_file_ids(existing_card)
+    for i, fid in enumerate(existing_ids):
+        is_last = i == len(existing_ids) - 1
+        if existing_card.get("kind") == "document":
+            await bot.send_document(chat_id=chat_id, document=fid, caption=caption if is_last else None, reply_markup=kb if is_last else None)
+        else:
+            await bot.send_photo(chat_id=chat_id, photo=fid, caption=caption if is_last else None, reply_markup=kb if is_last else None)
+
+
+async def duplicate_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if update.effective_user.id != ADMIN_ID:
+        await query.answer()
+        return
+    await query.answer()
+    action, key = query.data.split(":", 1)
+    pending = _pending_duplicate_adds.pop(key, None)
+    if not pending:
+        await query.message.reply_text("Эта карточка уже обработана или устарела.", reply_markup=DRAW_BUTTON)
+        return
+    if action == "skipadd":
+        await query.message.reply_text("Не добавляю.", reply_markup=DRAW_BUTTON)
+        return
+
+    if pending.get("is_text"):
+        img_bytes = render_text_card(pending["text"])
+        sent = await context.bot.send_photo(chat_id=pending["chat_id"], photo=io.BytesIO(img_bytes))
+        file_id = sent.photo[-1].file_id
+        new_id = storage.add_card(file_id, kind="photo", content_hash=pending.get("content_hash"))
+    elif pending.get("file_ids") is not None:
+        new_id = storage.add_multi_card(
+            pending["file_ids"], kind=pending.get("kind", "photo"),
+            phash=pending.get("phash"), content_hash=pending.get("content_hash"),
+        )
+    else:
+        new_id = storage.add_card(
+            pending["file_id"], kind=pending.get("kind", "photo"),
+            phash=pending.get("phash"), content_hash=pending.get("content_hash"),
+        )
+    await query.message.reply_text(
+        f"Добавлено! Карточка #{new_id}. Всего карточек: {storage.count()}.", reply_markup=DRAW_BUTTON
+    )
 
 
 async def _flush_media_group(context: ContextTypes.DEFAULT_TYPE):
@@ -418,9 +476,12 @@ async def _flush_media_group(context: ContextTypes.DEFAULT_TYPE):
 
     dup = storage.find_duplicate(content_hash=content_hash)
     if dup:
-        await context.bot.send_message(
-            chat_id=chat_id, text=f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
-        )
+        pending = {"kind": kind, "phash": phash, "content_hash": content_hash}
+        if len(file_ids) == 1:
+            pending["file_id"] = file_ids[0]
+        else:
+            pending["file_ids"] = file_ids
+        await _ask_duplicate_confirmation(context.bot, chat_id, dup, pending)
         return
 
     if len(file_ids) == 1:
@@ -476,8 +537,9 @@ async def admin_add_card_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             return
         dup = storage.find_duplicate(content_hash=content_hash)
         if dup:
-            await update.message.reply_text(
-                f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
+            await _ask_duplicate_confirmation(
+                context.bot, update.effective_chat.id, dup,
+                {"file_id": photo.file_id, "kind": "photo", "phash": phash, "content_hash": content_hash},
             )
             return
         new_id = storage.add_card(photo.file_id, kind="photo", phash=phash, content_hash=content_hash)
@@ -509,13 +571,9 @@ async def admin_add_card_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE)
         phash = compute_phash(pages[0])
         content_hash = compute_content_hash(bytes(raw))
         editing_id = context.user_data.pop("editing_card_id", None)
+        dup = None
         if not editing_id:
             dup = storage.find_duplicate(content_hash=content_hash)
-            if dup:
-                await update.message.reply_text(
-                    f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
-                )
-                return
         file_ids = []
         for page_bytes in pages:
             try:
@@ -526,6 +584,14 @@ async def admin_add_card_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 lambda **kw: context.bot.send_photo(chat_id=ADMIN_ID, **kw), optimized
             )
             file_ids.append(sent.photo[-1].file_id)
+        if dup:
+            pending = {"kind": "photo", "phash": phash, "content_hash": content_hash}
+            if len(file_ids) == 1:
+                pending["file_id"] = file_ids[0]
+            else:
+                pending["file_ids"] = file_ids
+            await _ask_duplicate_confirmation(context.bot, update.effective_chat.id, dup, pending)
+            return
         if editing_id:
             if len(file_ids) == 1:
                 ok = storage.update_card(editing_id, file_id=file_ids[0], kind="photo", phash=phash, content_hash=content_hash)
@@ -590,8 +656,9 @@ async def admin_add_card_document(update: Update, context: ContextTypes.DEFAULT_
             return
         dup = storage.find_duplicate(content_hash=content_hash)
         if dup:
-            await update.message.reply_text(
-                f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
+            await _ask_duplicate_confirmation(
+                context.bot, update.effective_chat.id, dup,
+                {"file_id": photo_file_id, "kind": "photo", "phash": phash, "content_hash": content_hash},
             )
             return
         new_id = storage.add_card(photo_file_id, kind="photo", phash=phash, content_hash=content_hash)
@@ -830,8 +897,9 @@ async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         content_hash = compute_content_hash(text.strip().encode("utf-8"))
         dup = storage.find_duplicate(content_hash=content_hash)
         if dup:
-            await update.message.reply_text(
-                f"Такая карточка уже есть — #{dup['id']}. Не добавляю дубликат.", reply_markup=DRAW_BUTTON
+            await _ask_duplicate_confirmation(
+                context.bot, update.effective_chat.id, dup,
+                {"is_text": True, "text": text, "content_hash": content_hash},
             )
             return
         img_bytes = render_text_card(text)
@@ -1117,6 +1185,7 @@ async def main():
     application.add_handler(CallbackQueryHandler(reminder_callback, pattern="^remind_"))
     application.add_handler(CallbackQueryHandler(admin_menu_callback, pattern="^menu_"))
     application.add_handler(CallbackQueryHandler(delete_confirm_callback, pattern="^(confirmdel:|canceldel$)"))
+    application.add_handler(CallbackQueryHandler(duplicate_confirm_callback, pattern="^(forceadd:|skipadd:)"))
     application.add_handler(MessageHandler(filters.Regex("^💎 Открыть жемчужину души$"), draw_card))
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(FAVORITES_BUTTON_TEXT)}$"), favorites_cmd))
     application.add_handler(MessageHandler(filters.Regex(f"^{re.escape(STATS_BUTTON_TEXT)}$"), stats_cmd))
