@@ -1717,16 +1717,6 @@
       "kind": "photo",
       "phash": "929b6d66a4d8d299",
       "content_hash": "fb68adbc629d301c4207c496bbb024910f6605469fbd40a9fb5fc389e5764760"
-    },
-    {
-      "id": 277,
-      "file_ids": [
-        "PPAGE_139689273553072",
-        "PPAGE_139689273553072",
-        "PPAGE_139689273553072"
-      ],
-      "kind": "photo",
-      "content_hash": "ff79c73ba54dff0bb21ce7cacb6cf3a5bd0bbeb9d85925341f5a4f97f77747e7"
     }
   ]
 }
