@@ -1737,6 +1737,12 @@
       "id": 279,
       "file_id": "A3",
       "kind": "photo"
+    },
+    {
+      "id": 280,
+      "file_id": "A1",
+      "kind": "photo",
+      "content_hash": "a152d9568d84788386ed06560799f7b0f2220051af3399d2aa78862c556eabcb"
     }
   ]
 }
