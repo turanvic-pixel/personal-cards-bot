@@ -1722,6 +1722,11 @@
       "id": 277,
       "file_id": "P_MERGE_A",
       "kind": "photo"
+    },
+    {
+      "id": 278,
+      "file_id": "P_MERGE_B",
+      "kind": "photo"
     }
   ]
 }
