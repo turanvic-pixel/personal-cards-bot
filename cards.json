@@ -1732,6 +1732,11 @@
       "id": 278,
       "file_id": "PM_A",
       "kind": "photo"
+    },
+    {
+      "id": 279,
+      "file_id": "PM_B",
+      "kind": "photo"
     }
   ]
 }
