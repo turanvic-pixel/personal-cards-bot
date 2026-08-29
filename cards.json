@@ -1998,20 +1998,6 @@
       "file_id": "AgACAgIAAxkDAAIVj2qST4uyqtxgccKj7iSSRIPJ3rvsAALaGmsb5geYSNYeG4mjfutMAQADAgADdwADPQQ",
       "kind": "photo",
       "content_hash": "610ff39cc4f46ffccc2ab504ff5a7d7a1b3d15491875739483ece761a96e5066"
-    },
-    {
-      "id": 292,
-      "file_id": "AgACAgIAAxkDAAIVvGqSVR0FmDl-xkYyurTYLc0AATsaRgAC7hprG-YHmEgAAZuPtYasn8EBAAMCAAN3AAM9BA",
-      "kind": "photo",
-      "phash": "d0950d1ef2672b6a",
-      "content_hash": "526e88de4359dc57ceeca2b2209ba2a583b35ba5b8628cd629a09630d5dd9559"
-    },
-    {
-      "id": 293,
-      "file_id": "AgACAgIAAxkDAAIVt2qSVRcqVnoI-R71c3vDoI7jdcScAALsGmsb5geYSAsL5hjCvSueAQADAgADdwADPQQ",
-      "kind": "photo",
-      "phash": "c4c8e15f1b353b31",
-      "content_hash": "42a6ca9a5766a2012615fa0b88e59df568e5c541644271f23bfd6758d13bde14"
     }
   ]
 }
