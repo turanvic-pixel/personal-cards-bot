@@ -1,3 +1,4 @@
 {
-  "keyboard_version": "v6-mode-selector"
+  "keyboard_version": "v6-mode-selector",
+  "_migration_test_key": "hello_from_data_branch_test"
 }
