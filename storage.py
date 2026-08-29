@@ -8,6 +8,12 @@ from github.GithubException import GithubException
 
 logger = logging.getLogger(__name__)
 
+# Все коммиты бота (сохранение карточек/избранного/напоминаний/пользователей/меты) уходят
+# в отдельную ветку DATA_BRANCH, а не в main. Render настроен на автодеплой при пуше в main,
+# и раньше каждое сохранение карточки перезапускало весь бот-процесс (убивая по дороге буфер
+# альбома в памяти). Ветку код-репозитория (main) теперь трогают только настоящие правки кода.
+DATA_BRANCH = "data"
+
 
 def card_file_ids(card: dict) -> list:
     """Список file_id карточки — поддерживает и старый формат (один file_id),
@@ -36,7 +42,7 @@ class CardStorage:
 
     def _load(self):
         try:
-            f = self.repo.get_contents(self.file_path)
+            f = self.repo.get_contents(self.file_path, ref=DATA_BRANCH)
             data = json.loads(f.decoded_content.decode())
             self.cards = data.get("cards", [])
             self._sha = f.sha
@@ -49,9 +55,9 @@ class CardStorage:
     def _save(self, commit_message: str):
         content = json.dumps({"cards": self.cards}, ensure_ascii=False, indent=2)
         if self._sha:
-            result = self.repo.update_file(self.file_path, commit_message, content, self._sha)
+            result = self.repo.update_file(self.file_path, commit_message, content, self._sha, branch=DATA_BRANCH)
         else:
-            result = self.repo.create_file(self.file_path, commit_message, content)
+            result = self.repo.create_file(self.file_path, commit_message, content, branch=DATA_BRANCH)
         self._sha = result["content"].sha
 
     def persist(self, commit_message: str):
@@ -235,7 +241,7 @@ class FavoritesStore:
 
     def _load(self):
         try:
-            f = self.repo.get_contents(self.file_path)
+            f = self.repo.get_contents(self.file_path, ref=DATA_BRANCH)
             self.data = json.loads(f.decoded_content.decode())
             self._sha = f.sha
         except Exception as e:
@@ -246,9 +252,9 @@ class FavoritesStore:
     def _save(self, commit_message: str):
         content = json.dumps(self.data, ensure_ascii=False, indent=2)
         if self._sha:
-            result = self.repo.update_file(self.file_path, commit_message, content, self._sha)
+            result = self.repo.update_file(self.file_path, commit_message, content, self._sha, branch=DATA_BRANCH)
         else:
-            result = self.repo.create_file(self.file_path, commit_message, content)
+            result = self.repo.create_file(self.file_path, commit_message, content, branch=DATA_BRANCH)
         self._sha = result["content"].sha
 
     def add(self, user_id: int, card_id: int) -> bool:
@@ -286,7 +292,7 @@ class ReminderStore:
 
     def _load(self):
         try:
-            f = self.repo.get_contents(self.file_path)
+            f = self.repo.get_contents(self.file_path, ref=DATA_BRANCH)
             self.data = json.loads(f.decoded_content.decode())
             self._sha = f.sha
         except Exception as e:
@@ -297,9 +303,9 @@ class ReminderStore:
     def _save(self, commit_message: str):
         content = json.dumps(self.data, ensure_ascii=False, indent=2)
         if self._sha:
-            result = self.repo.update_file(self.file_path, commit_message, content, self._sha)
+            result = self.repo.update_file(self.file_path, commit_message, content, self._sha, branch=DATA_BRANCH)
         else:
-            result = self.repo.create_file(self.file_path, commit_message, content)
+            result = self.repo.create_file(self.file_path, commit_message, content, branch=DATA_BRANCH)
         self._sha = result["content"].sha
 
     def set(self, user_id: int, time_str: str):
@@ -330,7 +336,7 @@ class UserStore:
 
     def _load(self):
         try:
-            f = self.repo.get_contents(self.file_path)
+            f = self.repo.get_contents(self.file_path, ref=DATA_BRANCH)
             self.data = json.loads(f.decoded_content.decode())
             self._sha = f.sha
         except Exception as e:
@@ -341,9 +347,9 @@ class UserStore:
     def _save(self, commit_message: str):
         content = json.dumps(self.data, ensure_ascii=False, indent=2)
         if self._sha:
-            result = self.repo.update_file(self.file_path, commit_message, content, self._sha)
+            result = self.repo.update_file(self.file_path, commit_message, content, self._sha, branch=DATA_BRANCH)
         else:
-            result = self.repo.create_file(self.file_path, commit_message, content)
+            result = self.repo.create_file(self.file_path, commit_message, content, branch=DATA_BRANCH)
         self._sha = result["content"].sha
 
     def add(self, user_id: int) -> bool:
@@ -369,7 +375,7 @@ class MetaStore:
 
     def _load(self):
         try:
-            f = self.repo.get_contents(self.file_path)
+            f = self.repo.get_contents(self.file_path, ref=DATA_BRANCH)
             self.data = json.loads(f.decoded_content.decode())
             self._sha = f.sha
         except Exception as e:
@@ -380,9 +386,9 @@ class MetaStore:
     def _save(self, commit_message: str):
         content = json.dumps(self.data, ensure_ascii=False, indent=2)
         if self._sha:
-            result = self.repo.update_file(self.file_path, commit_message, content, self._sha)
+            result = self.repo.update_file(self.file_path, commit_message, content, self._sha, branch=DATA_BRANCH)
         else:
-            result = self.repo.create_file(self.file_path, commit_message, content)
+            result = self.repo.create_file(self.file_path, commit_message, content, branch=DATA_BRANCH)
         self._sha = result["content"].sha
 
     def get(self, key: str, default=None):
