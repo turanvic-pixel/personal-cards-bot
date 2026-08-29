@@ -204,23 +204,50 @@ class CardStorage:
             return self.next_sequential_card(user_id)
         return card
 
-    def delete_card(self, card_id: int, max_attempts: int = 5) -> bool:
+    def delete_card(self, card_id: int, max_attempts: int = 5) -> tuple:
+        """Удаляет карточку и перенумеровывает оставшиеся без дыр (в одном коммите).
+        Возвращает (удалена_ли, mapping) — mapping {старый_id: новый_id} для карточек,
+        чей номер сдвинулся (нужно применить к FavoritesStore вызывающей стороне)."""
+        deleted, mapping = self.delete_cards([card_id], max_attempts=max_attempts)
+        return (card_id in deleted), mapping
+
+    def delete_cards(self, card_ids: list, max_attempts: int = 5) -> tuple:
+        """Удаляет сразу несколько карточек и перенумеровывает оставшиеся без дыр
+        в ОДНОМ коммите. Возвращает (список реально удалённых id, mapping
+        {старый_id: новый_id} для карточек, чей номер сдвинулся)."""
+        id_set = set(card_ids)
         for attempt in range(max_attempts):
             before = list(self.cards)
-            self.cards = [c for c in self.cards if c["id"] != card_id]
-            if len(self.cards) == len(before):
-                return False
+            existing_ids = {c["id"] for c in self.cards}
+            deleted = sorted(id_set & existing_ids)
+            if not deleted:
+                return [], {}
+            self.cards = [c for c in self.cards if c["id"] not in id_set]
+            mapping = self._renumber()
             try:
-                self._save(f"delete card #{card_id}")
-                return True
+                self._save(f"delete cards {deleted}, renumber {len(mapping)} shifted")
+                return deleted, mapping
             except GithubException as e:
                 self.cards = before
                 if getattr(e, "status", None) == 409 and attempt < max_attempts - 1:
-                    logger.warning("Конфликт версии cards.json (delete_card), перечитываю и повторяю: попытка %s", attempt + 1)
+                    logger.warning("Конфликт версии cards.json (delete_cards), перечитываю и повторяю: попытка %s", attempt + 1)
                     self._load()
                     continue
                 raise
-        return False
+        return [], {}
+
+    def _renumber(self) -> dict:
+        """Сортирует карточки по текущему id и присваивает новые id 1..N без дыр.
+        Возвращает mapping {старый_id: новый_id} только для карточек, чей номер
+        реально изменился (пустой словарь, если дыр не было)."""
+        self.cards.sort(key=lambda c: c["id"])
+        mapping = {}
+        for i, card in enumerate(self.cards, start=1):
+            old_id = card["id"]
+            if old_id != i:
+                mapping[old_id] = i
+                card["id"] = i
+        return mapping
 
     def list_ids(self) -> list:
         return [c["id"] for c in self.cards]
@@ -278,6 +305,21 @@ class FavoritesStore:
         self.data[key] = favs
         self._save(f"favorite remove user={user_id} card={card_id}")
         return True
+
+    def remap_ids(self, mapping: dict):
+        """Применяет сдвиг номеров карточек (после удаления + перенумерации) ко всем
+        избранным — так карточка остаётся в избранном у пользователя, просто под новым
+        номером, а не теряется."""
+        if not mapping:
+            return
+        changed = False
+        for uid, ids in self.data.items():
+            new_ids = [mapping.get(i, i) for i in ids]
+            if new_ids != ids:
+                self.data[uid] = new_ids
+                changed = True
+        if changed:
+            self._save(f"remap {len(mapping)} favorite ids after renumber")
 
 
 class ReminderStore:

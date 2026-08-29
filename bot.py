@@ -495,8 +495,9 @@ async def merge_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         combined_file_ids.extend(card_file_ids(card))
     kind = cards_in_order[0].get("kind", "photo")
     new_id = storage.add_multi_card(combined_file_ids, kind=kind)
-    for cid in ids_in_order:
-        storage.delete_card(cid)
+    _, mapping = storage.delete_cards(ids_in_order)
+    favorites.remap_ids(mapping)
+    new_id = mapping.get(new_id, new_id)
     await query.message.reply_text(
         f"Объединено! Новая карточка #{new_id} ({len(combined_file_ids)} стр.) из карточек {ids_in_order}. "
         f"Всего карточек: {storage.count()}.",
@@ -605,7 +606,8 @@ async def delete_old_confirm_callback(update: Update, context: ContextTypes.DEFA
         await query.message.reply_text("Оставляю обе карточки.", reply_markup=DRAW_BUTTON)
         return
     old_id = pending["old_id"]
-    ok = storage.delete_card(old_id)
+    ok, mapping = storage.delete_card(old_id)
+    favorites.remap_ids(mapping)
     if ok:
         await query.message.reply_text(
             f"Старая карточка #{old_id} удалена. Всего карточек: {storage.count()}.", reply_markup=DRAW_BUTTON
@@ -1029,13 +1031,9 @@ async def bulk_delete_confirm_callback(update: Update, context: ContextTypes.DEF
     if action == "cancelbulkdel":
         await query.message.reply_text("Отменено, карточки на месте.", reply_markup=DRAW_BUTTON)
         return
-    deleted = []
-    not_found = []
-    for cid in ids:
-        if storage.delete_card(cid):
-            deleted.append(cid)
-        else:
-            not_found.append(cid)
+    deleted, mapping = storage.delete_cards(ids)
+    not_found = [i for i in ids if i not in deleted]
+    favorites.remap_ids(mapping)
     msg = f"Удалено карточек: {len(deleted)}. Всего осталось: {storage.count()}."
     if not_found:
         msg += f" Не нашла: {not_found}."
@@ -1052,7 +1050,8 @@ async def delete_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
         await query.message.reply_text("Отменено, карточка на месте.", reply_markup=DRAW_BUTTON)
         return
     card_id = int(query.data.split(":")[1])
-    ok = storage.delete_card(card_id)
+    ok, mapping = storage.delete_card(card_id)
+    favorites.remap_ids(mapping)
     if ok:
         await query.message.reply_text(
             f"Карточка #{card_id} удалена. Всего карточек: {storage.count()}.", reply_markup=DRAW_BUTTON
