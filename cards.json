@@ -2026,6 +2026,13 @@
       "kind": "photo",
       "phash": "bc69e41263a4da8f",
       "content_hash": "6a880e5dc4d5fbff8189bcbff640961ab7971b7474953387f2e28b223e96b5c4"
+    },
+    {
+      "id": 283,
+      "file_id": "AgACAgIAAxkDAAIVpWqSVQVglPzt5LdiXa06KNL1XTNVAALjGmsb5geYSD_8tmaMh1FbAQADAgADdwADPQQ",
+      "kind": "photo",
+      "phash": "f41a5e285d22df89",
+      "content_hash": "5bb6d7d8bfb55332d7ade1a1a463f8570b9a13cd89fa5a7b0bcadd8bd3780d76"
     }
   ]
 }
