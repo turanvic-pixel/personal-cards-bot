@@ -172,7 +172,10 @@ async def admin_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.message.reply_text("Пришли номер карточки, которую хочешь посмотреть.")
     elif action == "menu_delete":
         context.user_data["awaiting_delete_number"] = True
-        await query.message.reply_text("Пришли номер карточки, которую нужно удалить.")
+        await query.message.reply_text(
+            "Пришли номер карточки, которую нужно удалить. "
+            "Можно несколько через запятую (5,7,12) или диапазон (12-15)."
+        )
     elif action == "menu_edit":
         context.user_data["awaiting_edit_number"] = True
         await query.message.reply_text("Пришли номер карточки, которую нужно отредактировать.")
@@ -1037,6 +1040,50 @@ async def _prompt_delete_confirmation(message, card_id: int):
             await message.reply_photo(photo=fid, caption=caption if is_last else None, reply_markup=kb if is_last else None)
 
 
+_pending_bulk_delete: dict = {}
+
+
+async def _prompt_bulk_delete_confirmation(message, ids: list):
+    """Подтверждение удаления сразу нескольких карточек (список или диапазон номеров)."""
+    key = uuid.uuid4().hex[:12]
+    _pending_bulk_delete[key] = ids
+    ids_str = ", ".join(f"#{i}" for i in ids)
+    kb = InlineKeyboardMarkup(
+        [[
+            InlineKeyboardButton(f"✅ Да, удалить {len(ids)}", callback_data=f"confirmbulkdel:{key}"),
+            InlineKeyboardButton("❌ Отмена", callback_data=f"cancelbulkdel:{key}"),
+        ]]
+    )
+    await message.reply_text(f"Удалить карточки {ids_str} ({len(ids)} шт.)?", reply_markup=kb)
+
+
+async def bulk_delete_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if update.effective_user.id != ADMIN_ID:
+        await query.answer()
+        return
+    await query.answer()
+    action, key = query.data.split(":", 1)
+    ids = _pending_bulk_delete.pop(key, None)
+    if not ids:
+        await query.message.reply_text("Этот запрос уже устарел.", reply_markup=DRAW_BUTTON)
+        return
+    if action == "cancelbulkdel":
+        await query.message.reply_text("Отменено, карточки на месте.", reply_markup=DRAW_BUTTON)
+        return
+    deleted = []
+    not_found = []
+    for cid in ids:
+        if storage.delete_card(cid):
+            deleted.append(cid)
+        else:
+            not_found.append(cid)
+    msg = f"Удалено карточек: {len(deleted)}. Всего осталось: {storage.count()}."
+    if not_found:
+        msg += f" Не нашла: {not_found}."
+    await query.message.reply_text(msg, reply_markup=DRAW_BUTTON)
+
+
 async def delete_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if update.effective_user.id != ADMIN_ID:
@@ -1113,10 +1160,18 @@ async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     if context.user_data.get("awaiting_delete_number"):
         context.user_data["awaiting_delete_number"] = False
         text = (update.message.text or "").strip()
-        if not text.isdigit():
-            await update.message.reply_text("Это не похоже на номер карточки. Попробуй ещё раз через меню.", reply_markup=DRAW_BUTTON)
+        ids = parse_card_selection(text, storage.list_ids())
+        if not ids:
+            await update.message.reply_text(
+                "Это не похоже на номер карточки. Можно один номер (5), список через запятую (5,7,12) "
+                "или диапазон (12-15). Попробуй ещё раз через меню.",
+                reply_markup=DRAW_BUTTON,
+            )
             return
-        await _prompt_delete_confirmation(update.message, int(text))
+        if len(ids) == 1:
+            await _prompt_delete_confirmation(update.message, ids[0])
+        else:
+            await _prompt_bulk_delete_confirmation(update.message, ids)
         return
     if context.user_data.get("awaiting_edit_number"):
         context.user_data["awaiting_edit_number"] = False
@@ -1460,6 +1515,7 @@ async def main():
     application.add_handler(CallbackQueryHandler(reminder_callback, pattern="^remind_"))
     application.add_handler(CallbackQueryHandler(admin_menu_callback, pattern="^menu_"))
     application.add_handler(CallbackQueryHandler(delete_confirm_callback, pattern="^(confirmdel:|canceldel$)"))
+    application.add_handler(CallbackQueryHandler(bulk_delete_confirm_callback, pattern="^(confirmbulkdel:|cancelbulkdel:)"))
     application.add_handler(CallbackQueryHandler(duplicate_confirm_callback, pattern="^(forceadd:|skipadd:)"))
     application.add_handler(CallbackQueryHandler(delete_old_confirm_callback, pattern="^(delold:|keepold:)"))
     application.add_handler(CallbackQueryHandler(merge_confirm_callback, pattern="^(confirmmerge:|cancelmerge:)"))
