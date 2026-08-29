@@ -737,45 +737,25 @@ async def admin_add_card_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     try:
         photo = update.message.photo[-1]
-        group_id = update.message.media_group_id
-        if group_id:
-            is_new = group_id not in _media_group_buffers
-            buf = _media_group_buffers.setdefault(
-                group_id, {"file_ids": [], "kind": "photo", "chat_id": update.effective_chat.id}
-            )
-            if is_new:
-                buf["editing_card_id"] = context.user_data.pop("editing_card_id", None)
-                try:
-                    tg_file = await with_retries(context.bot.get_file, photo.file_id)
-                    buf["first_raw"] = bytes(await with_retries(tg_file.download_as_bytearray))
-                except Exception:
-                    logger.exception("Не удалось скачать первое фото альбома")
-            buf["file_ids"].append(photo.file_id)
-            _schedule_media_group_flush(context, group_id)
-            return
-
-        tg_file = await with_retries(context.bot.get_file, photo.file_id)
-        raw = await with_retries(tg_file.download_as_bytearray)
-        phash = compute_phash(bytes(raw))
-        content_hash = compute_content_hash(bytes(raw))
-        editing_id = context.user_data.pop("editing_card_id", None)
-        if editing_id:
-            ok = storage.update_card(editing_id, file_id=photo.file_id, kind="photo", phash=phash, content_hash=content_hash)
-            msg = f"Карточка #{editing_id} обновлена." if ok else f"Не нашла карточку #{editing_id} — возможно, её удалили."
-            await update.message.reply_text(msg, reply_markup=DRAW_BUTTON)
-            return
-        dup = storage.find_duplicate(content_hash=content_hash)
-        if dup:
-            await _ask_duplicate_confirmation(
-                context.bot, update.effective_chat.id, dup,
-                {"file_id": photo.file_id, "kind": "photo", "phash": phash, "content_hash": content_hash},
-            )
-            return
-        new_id = storage.add_card(photo.file_id, kind="photo", phash=phash, content_hash=content_hash)
-        await update.message.reply_text(
-            f"Добавлено! Карточка #{new_id}. Всего карточек: {storage.count()}.",
-            reply_markup=DRAW_BUTTON,
+        # Telegram не всегда присылает media_group_id (проверено на реальных данных: для
+        # документов он систематически пустой даже при явной отправке пачкой). Поэтому если
+        # его нет, группируем сами по синтетическому ключу "один админ = один поток загрузки" —
+        # это даёт ту же самую логику буферизации/вопроса "одной или отдельными" без зависимости
+        # от того, прислал ли Telegram настоящий media_group_id.
+        group_id = update.message.media_group_id or f"solo:{update.effective_chat.id}"
+        is_new = group_id not in _media_group_buffers
+        buf = _media_group_buffers.setdefault(
+            group_id, {"file_ids": [], "kind": "photo", "chat_id": update.effective_chat.id}
         )
+        if is_new:
+            buf["editing_card_id"] = context.user_data.pop("editing_card_id", None)
+            try:
+                tg_file = await with_retries(context.bot.get_file, photo.file_id)
+                buf["first_raw"] = bytes(await with_retries(tg_file.download_as_bytearray))
+            except Exception:
+                logger.exception("Не удалось скачать первое фото альбома")
+        buf["file_ids"].append(photo.file_id)
+        _schedule_media_group_flush(context, group_id)
     except Exception as e:
         logger.exception("Ошибка при добавлении фото-карточки")
         await update.message.reply_text(f"Не удалось добавить карточку: {e}", reply_markup=DRAW_BUTTON)
@@ -851,7 +831,9 @@ async def admin_add_card_document(update: Update, context: ContextTypes.DEFAULT_
     try:
         tg_file = await with_retries(context.bot.get_file, doc.file_id)
         raw = await with_retries(tg_file.download_as_bytearray)
-        group_id = update.message.media_group_id
+        # см. комментарий в admin_add_card_photo: media_group_id от Telegram для документов
+        # на практике систематически пустой, поэтому группируем сами по синтетическому ключу.
+        group_id = update.message.media_group_id or f"solo:{update.effective_chat.id}"
 
         try:
             optimized = optimize_image_bytes(bytes(raw))
@@ -862,39 +844,15 @@ async def admin_add_card_document(update: Update, context: ContextTypes.DEFAULT_
         sent = await send_photo_with_retry(update.message.reply_photo, optimized)
         photo_file_id = sent.photo[-1].file_id
 
-        if group_id:
-            is_new = group_id not in _media_group_buffers
-            buf = _media_group_buffers.setdefault(
-                group_id, {"file_ids": [], "kind": "photo", "chat_id": update.effective_chat.id}
-            )
-            if is_new:
-                buf["editing_card_id"] = context.user_data.pop("editing_card_id", None)
-                buf["first_raw"] = bytes(raw)
-            buf["file_ids"].append(photo_file_id)
-            _schedule_media_group_flush(context, group_id)
-            return
-
-        phash = compute_phash(bytes(raw))
-        content_hash = compute_content_hash(bytes(raw))
-        editing_id = context.user_data.get("editing_card_id")
-        if editing_id:
-            context.user_data.pop("editing_card_id", None)
-            ok = storage.update_card(editing_id, file_id=photo_file_id, kind="photo", phash=phash, content_hash=content_hash)
-            msg = f"Карточка #{editing_id} обновлена." if ok else f"Не нашла карточку #{editing_id} — возможно, её удалили."
-            await update.message.reply_text(msg, reply_markup=DRAW_BUTTON)
-            return
-        dup = storage.find_duplicate(content_hash=content_hash)
-        if dup:
-            await _ask_duplicate_confirmation(
-                context.bot, update.effective_chat.id, dup,
-                {"file_id": photo_file_id, "kind": "photo", "phash": phash, "content_hash": content_hash},
-            )
-            return
-        new_id = storage.add_card(photo_file_id, kind="photo", phash=phash, content_hash=content_hash)
-        await update.message.reply_text(
-            f"Добавлено (оптимизировано)! Карточка #{new_id}. Всего карточек: {storage.count()}.",
-            reply_markup=DRAW_BUTTON,
+        is_new = group_id not in _media_group_buffers
+        buf = _media_group_buffers.setdefault(
+            group_id, {"file_ids": [], "kind": "photo", "chat_id": update.effective_chat.id}
         )
+        if is_new:
+            buf["editing_card_id"] = context.user_data.pop("editing_card_id", None)
+            buf["first_raw"] = bytes(raw)
+        buf["file_ids"].append(photo_file_id)
+        _schedule_media_group_flush(context, group_id)
     except Exception as e:
         logger.exception("Ошибка при добавлении карточки из файла")
         await update.message.reply_text(f"Не удалось добавить карточку: {e}", reply_markup=DRAW_BUTTON)
