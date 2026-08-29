@@ -2019,6 +2019,13 @@
       "kind": "photo",
       "phash": "be25a52ecac8d0da",
       "content_hash": "744d4a3be6a23d485a3aeba28dea4f45d799d361f902d8757fa71f597573a474"
+    },
+    {
+      "id": 282,
+      "file_id": "AgACAgIAAxkDAAIVpGqSVQUV3gQhlwlomox4TIKhoOOAAALiGmsb5geYSDW5cJ2MIWsuAQADAgADdwADPQQ",
+      "kind": "photo",
+      "phash": "bc69e41263a4da8f",
+      "content_hash": "6a880e5dc4d5fbff8189bcbff640961ab7971b7474953387f2e28b223e96b5c4"
     }
   ]
 }
