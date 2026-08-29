@@ -1998,6 +1998,12 @@
       "file_id": "AgACAgIAAxkDAAIVj2qST4uyqtxgccKj7iSSRIPJ3rvsAALaGmsb5geYSNYeG4mjfutMAQADAgADdwADPQQ",
       "kind": "photo",
       "content_hash": "610ff39cc4f46ffccc2ab504ff5a7d7a1b3d15491875739483ece761a96e5066"
+    },
+    {
+      "id": 279,
+      "file_id": "AgACAgIAAxkDAAIWBmqSwJAju3kTzBMaK_8McuPT0ui0AALMHGsb5geYSJVW0fG1KZ6UAQADAgADdwADPQQ",
+      "kind": "photo",
+      "content_hash": "f6281c9b18f84b60c4179549508be411b8b9c758f72501eab6f01faaa5b44d10"
     }
   ]
 }
