@@ -161,6 +161,32 @@ class CardStorage:
         """Задаёт/меняет название карточки, показывается после номера всем пользователям."""
         return self.update_card(card_id, title=title)
 
+    def set_titles(self, mapping: dict, max_attempts: int = 5) -> tuple:
+        """Задаёт названия сразу нескольким карточкам ОДНИМ коммитом.
+        mapping: {card_id: title}. Возвращает (список обновлённых id, список не найденных id)."""
+        not_found = [cid for cid in mapping if not any(c["id"] == cid for c in self.cards)]
+        to_apply = {cid: t for cid, t in mapping.items() if cid not in not_found}
+        if not to_apply:
+            return [], not_found
+        for attempt in range(max_attempts):
+            before = list(self.cards)
+            updated = []
+            for card in self.cards:
+                if card["id"] in to_apply:
+                    card["title"] = to_apply[card["id"]]
+                    updated.append(card["id"])
+            try:
+                self._save(f"set titles for {len(updated)} cards")
+                return updated, not_found
+            except GithubException as e:
+                self.cards = before
+                if getattr(e, "status", None) == 409 and attempt < max_attempts - 1:
+                    logger.warning("Конфликт версии cards.json (set_titles), перечитываю и повторяю: попытка %s", attempt + 1)
+                    self._load()
+                    continue
+                raise
+        return [], not_found
+
     def find_duplicate(self, phash: str | None = None, content_hash: str | None = None, max_distance: int = 0):
         """Дубликатом считается только карточка с ТЕМ ЖЕ точным содержимым файла (content_hash).
         Перцептивный хэш (phash) больше не используется для решения — визуально похожие,

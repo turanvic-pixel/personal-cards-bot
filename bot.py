@@ -184,6 +184,7 @@ async def admin_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data["awaiting_title_input"] = True
         await query.message.reply_text(
             "Пришли номер карточки и название через пробел, например: 1 Две точки\n"
+            "Можно сразу несколько — каждую пару номер+название с новой строки.\n"
             "Название видно всем пользователям после номера карточки."
         )
     elif action == "menu_merge":
@@ -1152,19 +1153,33 @@ async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     if context.user_data.get("awaiting_title_input"):
         context.user_data["awaiting_title_input"] = False
         text = (update.message.text or "").strip()
-        parts = text.split(maxsplit=1)
-        if len(parts) != 2 or not parts[0].isdigit() or not parts[1].strip():
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        mapping = {}
+        bad_lines = []
+        for ln in lines:
+            parts = ln.split(maxsplit=1)
+            if len(parts) != 2 or not parts[0].isdigit() or not parts[1].strip():
+                bad_lines.append(ln)
+                continue
+            mapping[int(parts[0])] = parts[1].strip()
+        if not mapping:
             await update.message.reply_text(
-                "Формат: номер и название через пробел, например: 1 Две точки. Попробуй ещё раз через меню.",
+                "Формат: номер и название через пробел (можно несколько строк), например:\n1 Две точки\n2 Огонь.\n"
+                "Попробуй ещё раз через меню.",
                 reply_markup=DRAW_BUTTON,
             )
             return
-        card_id, title = int(parts[0]), parts[1].strip()
-        ok = storage.set_title(card_id, title)
-        if ok:
-            await update.message.reply_text(f"Готово: {card_caption({'id': card_id, 'title': title})}.", reply_markup=DRAW_BUTTON)
-        else:
-            await update.message.reply_text(f"Карточка #{card_id} не найдена.", reply_markup=DRAW_BUTTON)
+        updated, not_found = storage.set_titles(mapping)
+        msg_parts = []
+        if updated:
+            preview = ", ".join(f"#{cid}" for cid in updated[:10])
+            more = f" и ещё {len(updated) - 10}" if len(updated) > 10 else ""
+            msg_parts.append(f"Готово, обновлено {len(updated)}: {preview}{more}.")
+        if not_found:
+            msg_parts.append(f"Не нашла карточки: {not_found}.")
+        if bad_lines:
+            msg_parts.append(f"Не разобрала строки: {bad_lines}.")
+        await update.message.reply_text("\n".join(msg_parts), reply_markup=DRAW_BUTTON)
         return
     if context.user_data.get("editing_card_id"):
         card_id = context.user_data.pop("editing_card_id")
