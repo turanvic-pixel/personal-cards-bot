@@ -2011,6 +2011,13 @@
       "kind": "photo",
       "phash": "bec3c33cc0c0d39d",
       "content_hash": "37be1bfbbd171c6a6fcd42aa628d79c49321ab791ae2efae6b3a7d8ef49ec4ca"
+    },
+    {
+      "id": 281,
+      "file_id": "AgACAgIAAxkDAAIVpGqSVQUV3gQhlwlomox4TIKhoOOAAALiGmsb5geYSDW5cJ2MIWsuAQADAgADdwADPQQ",
+      "kind": "photo",
+      "phash": "bc69e41263a4da8f",
+      "content_hash": "6a880e5dc4d5fbff8189bcbff640961ab7971b7474953387f2e28b223e96b5c4"
     }
   ]
 }
