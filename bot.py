@@ -718,10 +718,14 @@ async def group_choice_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 def _schedule_media_group_flush(context: ContextTypes.DEFAULT_TYPE, group_id: str):
+    # 1.5с не хватало: в больших альбомах (10+ файлов) Telegram отдаёт документы
+    # с разрывами до ~8с, плюс своё время уходит на скачивание/оптимизацию/переотправку
+    # каждого файла — буфер флашился раньше, чем приходили все страницы альбома,
+    # и большой альбом дробился на кучу карточек по одной без вопроса "отдельными/одной".
     for job in context.application.job_queue.get_jobs_by_name(f"mg_{group_id}"):
         job.schedule_removal()
     context.application.job_queue.run_once(
-        _flush_media_group, when=1.5, data={"group_id": group_id}, name=f"mg_{group_id}"
+        _flush_media_group, when=10, data={"group_id": group_id}, name=f"mg_{group_id}"
     )
 
 
