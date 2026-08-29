@@ -23,7 +23,7 @@ from telegram.ext import (
     filters,
 )
 
-from storage import CardStorage, FavoritesStore, MetaStore, ReminderStore, UserStore, card_file_ids
+from storage import CardStorage, FavoritesStore, MetaStore, ReminderStore, UserStore, card_file_ids, card_caption
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("carddeck-bot")
@@ -143,6 +143,7 @@ def _admin_menu_keyboard() -> InlineKeyboardMarkup:
         [
             [InlineKeyboardButton("🔎 Показать карточку по номеру", callback_data="menu_view")],
             [InlineKeyboardButton("✏️ Редактировать карточку", callback_data="menu_edit")],
+            [InlineKeyboardButton("🏷 Название карточки", callback_data="menu_title")],
             [InlineKeyboardButton("🔗 Объединить карточки", callback_data="menu_merge")],
             [InlineKeyboardButton("📋 Список номеров карточек", callback_data="menu_count")],
             [InlineKeyboardButton("🗑 Удалить карточку", callback_data="menu_delete")],
@@ -179,6 +180,12 @@ async def admin_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif action == "menu_edit":
         context.user_data["awaiting_edit_number"] = True
         await query.message.reply_text("Пришли номер карточки, которую нужно отредактировать.")
+    elif action == "menu_title":
+        context.user_data["awaiting_title_input"] = True
+        await query.message.reply_text(
+            "Пришли номер карточки и название через пробел, например: 1 Две точки\n"
+            "Название видно всем пользователям после номера карточки."
+        )
     elif action == "menu_merge":
         context.user_data["awaiting_merge_numbers"] = True
         await query.message.reply_text(
@@ -281,7 +288,7 @@ async def draw_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Пока нет ни одной карточки в коллекции.", reply_markup=DRAW_BUTTON)
         return
     record_view(user_id)
-    caption = f"Карточка #{card['id']}" if update.effective_user.id == ADMIN_ID else None
+    caption = card_caption(card) if update.effective_user.id == ADMIN_ID else None
     kb = _fav_keyboard(card["id"])
     file_ids = card_file_ids(card)
     for i, fid in enumerate(file_ids):
@@ -1142,6 +1149,23 @@ async def admin_add_card_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"Пришли новое содержимое (фото, файл или текст) для карточки #{card_id}.", reply_markup=DRAW_BUTTON
         )
         return
+    if context.user_data.get("awaiting_title_input"):
+        context.user_data["awaiting_title_input"] = False
+        text = (update.message.text or "").strip()
+        parts = text.split(maxsplit=1)
+        if len(parts) != 2 or not parts[0].isdigit() or not parts[1].strip():
+            await update.message.reply_text(
+                "Формат: номер и название через пробел, например: 1 Две точки. Попробуй ещё раз через меню.",
+                reply_markup=DRAW_BUTTON,
+            )
+            return
+        card_id, title = int(parts[0]), parts[1].strip()
+        ok = storage.set_title(card_id, title)
+        if ok:
+            await update.message.reply_text(f"Готово: {card_caption({'id': card_id, 'title': title})}.", reply_markup=DRAW_BUTTON)
+        else:
+            await update.message.reply_text(f"Карточка #{card_id} не найдена.", reply_markup=DRAW_BUTTON)
+        return
     if context.user_data.get("editing_card_id"):
         card_id = context.user_data.pop("editing_card_id")
         text = update.message.text
@@ -1222,7 +1246,7 @@ async def _reply_with_card(message, card_id: int):
     if card is None:
         await message.reply_text(f"Карточка #{card_id} не найдена.", reply_markup=DRAW_BUTTON)
         return
-    caption = f"Карточка #{card_id} ({len(card_file_ids(card))} стр.)."
+    caption = f"{card_caption(card)} ({len(card_file_ids(card))} стр.)."
     file_ids = card_file_ids(card)
     for i, fid in enumerate(file_ids):
         is_last = i == len(file_ids) - 1

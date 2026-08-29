@@ -23,6 +23,13 @@ def card_file_ids(card: dict) -> list:
     return [card["file_id"]]
 
 
+def card_caption(card: dict) -> str:
+    """Подпись карточки: номер, и если задано — название после него."""
+    title = card.get("title")
+    base = f"Карточка #{card['id']}"
+    return f"{base} {title}" if title else base
+
+
 class CardStorage:
     """Хранит карточки (file_id фото + текст) в cards.json в GitHub-репозитории.
 
@@ -114,6 +121,7 @@ class CardStorage:
         kind: str | None = None,
         phash: str | None = None,
         content_hash: str | None = None,
+        title: str | None = None,
         max_attempts: int = 5,
     ) -> bool:
         """Заменяет содержимое существующей карточки (номер/позиция в колоде сохраняются)."""
@@ -135,6 +143,8 @@ class CardStorage:
                 card["phash"] = phash
             if content_hash is not None:
                 card["content_hash"] = content_hash
+            if title is not None:
+                card["title"] = title
             try:
                 self._save(f"edit card #{card_id}")
                 return True
@@ -146,6 +156,10 @@ class CardStorage:
                     continue
                 raise
         return False
+
+    def set_title(self, card_id: int, title: str) -> bool:
+        """Задаёт/меняет название карточки, показывается после номера всем пользователям."""
+        return self.update_card(card_id, title=title)
 
     def find_duplicate(self, phash: str | None = None, content_hash: str | None = None, max_distance: int = 0):
         """Дубликатом считается только карточка с ТЕМ ЖЕ точным содержимым файла (content_hash).
