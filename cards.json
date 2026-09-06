@@ -2213,6 +2213,13 @@
       "id": 297,
       "file_id": "AgACAgIAAxkBAAIXemqdeC8lCgg_OV6E9AR6315-riJbAAJlG2sb4SPpSOpJyeA7NJx9AQADAgADeQADPQQ",
       "kind": "photo"
+    },
+    {
+      "id": 298,
+      "file_id": "AgACAgIAAxkBAAIXe2qdeC9KU6lxXc-SjESOM-Kiq2_zAAJkG2sb4SPpSE7oeMidzPyLAQADAgADeQADPQQ",
+      "kind": "photo",
+      "phash": "d5a8d4a85eb93385",
+      "content_hash": "1348be12bfb8a33f67f8ba13c1d7cba3caa53d21e90589a18fefce8e8ac9ba5f"
     }
   ]
 }
