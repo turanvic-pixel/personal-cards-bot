@@ -2247,6 +2247,16 @@
       "kind": "photo",
       "phash": "8fc1d3076007fe35",
       "content_hash": "22a507f911c0379476de697cd31a8b49b6542287aba129faa197acd22520be6c"
+    },
+    {
+      "id": 304,
+      "file_ids": [
+        "AgACAgIAAxkDAAIXl2qhbmxR7WgPIRqGOhn4r7wPfLbeAALzI2sbtEAJSW_Kj7-9-91MAQADAgADdwADPQQ",
+        "AgACAgIAAxkDAAIXmGqhbm2msR2W_X8cHkkORCw9_rb3AAL0I2sbtEAJSVOBPZHh-FN1AQADAgADdwADPQQ",
+        "AgACAgIAAxkDAAIXmWqhbm3Ko6YmeFs-86k61syPmlY6AAL1I2sbtEAJSSRKadlA462iAQADAgADdwADPQQ"
+      ],
+      "kind": "photo",
+      "content_hash": "e198a91521b46a3e82899cc8d665d638c5533609d4ba5391b9f9741a2daa4795"
     }
   ]
 }
