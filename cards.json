@@ -2266,6 +2266,15 @@
       ],
       "kind": "photo",
       "content_hash": "db72f05869f4c7b647efc1e3a412e29a7bc89ed0f8762f6857b08d8b1776dbad"
+    },
+    {
+      "id": 306,
+      "file_ids": [
+        "AgACAgIAAxkDAAIXpGqhcJqkTUwcqdBugQIpPsDQUjMWAAJMJGsbtEAJSdvGjeaF60wbAQADAgADdwADPQQ",
+        "AgACAgIAAxkDAAIXpWqhcJpgnm1C8V0VrM2QMdmjzx9BAAJNJGsbtEAJSebKWImZ7jugAQADAgADdwADPQQ"
+      ],
+      "kind": "photo",
+      "content_hash": "f648c36509a1ca55e811706444e67b3bc96fc89d5fad54c86629b1dad23b3f1c"
     }
   ]
 }
