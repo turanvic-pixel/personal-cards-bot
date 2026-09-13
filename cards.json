@@ -2308,6 +2308,13 @@
       "kind": "photo",
       "phash": "cbe9b42ee036926a",
       "content_hash": "c5362425dc2d53c0110bd0550db5a3deabe5462f5fbd9333c79aa234ee1c175f"
+    },
+    {
+      "id": 311,
+      "file_id": "AgACAgIAAxkBAAIXt2qmnBtttQ5xfEkBCrq4sezDDUfmAAJ0IGsboCU5SfCPRsMtSGN0AQADAgADeQADPQQ",
+      "kind": "photo",
+      "phash": "cba55860a5f9a17a",
+      "content_hash": "1cc08bd5adea3d4c74a0384c7d2072701a91de360d4af390a6c40fbf6da5a536"
     }
   ]
 }
