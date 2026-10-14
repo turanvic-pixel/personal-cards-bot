@@ -2433,6 +2433,13 @@
       "kind": "photo",
       "phash": "b476f9890ff69410",
       "content_hash": "8d81fec642d282920aa7aa2b1f30fd10ea6fc19c5ba390952c2cac0ebce5d1cf"
+    },
+    {
+      "id": 330,
+      "file_id": "AgACAgIAAxkBAAIX_WrPCD2nyqRwcvLd4mSYVO5MHrtJAAIFHmsbiVx4Sl4q0zQRG3DZAQADAgADeQADPQQ",
+      "kind": "photo",
+      "phash": "f34e8c1195b53566",
+      "content_hash": "8436ff99813122b71d7f0939c49359cce67a29e8641161080c15ed019b04e845"
     }
   ]
 }
