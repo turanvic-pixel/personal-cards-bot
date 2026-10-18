@@ -2456,6 +2456,13 @@
       "id": 332,
       "file_id": "AgACAgIAAxkBAAIYBGrUzU8bwCC9wK0CvTB_Va8DYhrAAAIvHGsbZJ2pSvYCYBQ6k4UdAQADAgADeQADPQQ",
       "kind": "photo"
+    },
+    {
+      "id": 333,
+      "file_id": "AgACAgIAAxkBAAIYBWrUzU_PYlVxLvTAu5yvlg2eAco_AAIwHGsbZJ2pSqSgDLT56JinAQADAgADeQADPQQ",
+      "kind": "photo",
+      "phash": "81e4443b87b8676f",
+      "content_hash": "a7892537c01ae57ef7595e1499eefcbe423dc7ea3079525d3130162de477f385"
     }
   ]
 }
