@@ -75,7 +75,7 @@ async def send_photo_with_retry(send_call, photo_bytes: bytes, max_attempts: int
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
-GITHUB_REPO = os.environ.get("GITHUB_REPO", "carddeck-bot")
+GITHUB_REPO = os.environ["GITHUB_REPO"]  # без значения по умолчанию: иначе бот молча пишет данные в чужой репозиторий
 EXTERNAL_URL = os.environ.get("EXTERNAL_URL")  # напр. https://carddeck-bot.onrender.com
 PORT = int(os.environ.get("PORT", 10000))
 OLD_BOT_TOKEN = os.environ.get("OLD_BOT_TOKEN")  # опционально: токен бота-источника для команды /import_cards
