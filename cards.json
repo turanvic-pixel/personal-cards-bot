@@ -2527,6 +2527,13 @@
       "id": 341,
       "file_id": "AgACAgIAAxkBAAIYI2rxfEskQNQn28qw95u6LqkCAVARAAKjGmsbtYCQS5ziEsTayR_AAQADAgADeQADPQQ",
       "kind": "photo"
+    },
+    {
+      "id": 342,
+      "file_id": "AgACAgIAAxkBAAIYJGrxfEs8_aaPc3ZjtNo4s0gMk86GAAKkGmsbtYCQS9jcHd6RfOsZAQADAgADeQADPQQ",
+      "kind": "photo",
+      "phash": "ab3eecb18668b1c4",
+      "content_hash": "244b06ed92a90401ef820eb968aca602a5c0dec8690a7fa501a0f6576111bd8a"
     }
   ]
 }
